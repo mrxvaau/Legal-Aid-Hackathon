@@ -1,0 +1,21 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Testing & Logs
+coverage/
+*.log
+npm-debug.log*
+
+# Production builds
+dist/
+build/
+
+# Local databases (except test fixtures if any)
+backend/data/*.sqlite-shm
+backend/data/*.sqlite-wal
+
+# OS files
+.DS_Store
+Thumbs.db

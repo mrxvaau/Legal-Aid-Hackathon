@@ -1,0 +1,24 @@
+{
+  "name": "adlasb-digital-legal-aid",
+  "version": "1.0.0",
+  "description": "ADLASB Digital Legal Aid System Prototype - Grand Finale Integrated Architecture",
+  "scripts": {
+    "postinstall": "cd backend && npm install && cd ../frontend && npm install",
+    "migrate": "cd backend && npm run migrate",
+    "seed": "cd backend && npm run seed",
+    "test": "cd backend && npm test",
+    "start:backend": "cd backend && npm start",
+    "start:frontend": "cd frontend && npm run dev",
+    "build:frontend": "cd frontend && npm run build"
+  },
+  "keywords": [
+    "adlasb",
+    "legal-aid",
+    "bangladesh",
+    "dlao",
+    "legaltech",
+    "access-to-justice"
+  ],
+  "author": "ADLASB Solo Grand Finale Finalist",
+  "license": "UNLICENSED"
+}
