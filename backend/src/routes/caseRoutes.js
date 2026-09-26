@@ -28,6 +28,13 @@ router.get(
   caseController.listCases.bind(caseController)
 );
 
+// B7 Full-Text Case Search (Across Name, NID, Case Number, Token)
+router.get(
+  '/search',
+  requirePermission(PERMISSIONS.CASE_READ),
+  caseController.searchCases.bind(caseController)
+);
+
 router.get(
   '/:id',
   requirePermission(PERMISSIONS.CASE_READ),
@@ -155,6 +162,12 @@ router.post(
   caseController.createIncident.bind(caseController)
 );
 
+router.post(
+  '/:id/link-incident',
+  requirePermission(PERMISSIONS.INCIDENT_LINK),
+  caseController.linkIncident.bind(caseController)
+);
+
 router.get(
   '/:id/incidents',
   requirePermission(PERMISSIONS.INCIDENT_READ),
@@ -197,6 +210,77 @@ router.post(
   '/:id/lawyer/escalate',
   requirePermission(PERMISSIONS.LAWYER_ESCALATE),
   caseController.escalateLawyer.bind(caseController)
+);
+
+// T2 Jurisdiction Decision (Ping-Pong Escalation Resolution)
+router.patch(
+  '/:id/jurisdiction-decision',
+  requirePermission(PERMISSIONS.CASE_UPDATE_STATUS),
+  caseController.decideJurisdiction.bind(caseController)
+);
+
+// T11 Secure E-Signature & Document Integrity
+router.post(
+  '/:id/sign',
+  requirePermission(PERMISSIONS.CASE_SIGN),
+  caseController.signDocument.bind(caseController)
+);
+
+router.get(
+  '/:id/verify-signatures',
+  requirePermission(PERMISSIONS.CASE_VERIFY_SIGNATURES),
+  caseController.verifySignatures.bind(caseController)
+);
+
+// T7 Settlement Drafting Assistant
+router.post(
+  '/:id/draft-settlement',
+  requirePermission(PERMISSIONS.CASE_DRAFT_SETTLEMENT),
+  caseController.draftSettlement.bind(caseController)
+);
+
+router.post(
+  '/:id/settlements/:settlementId/confirm',
+  requirePermission(PERMISSIONS.CASE_CONFIRM_SETTLEMENT),
+  caseController.confirmSettlement.bind(caseController)
+);
+
+// T6 Document Summarization & Checklist Agent
+router.post(
+  '/:id/documents/summarize',
+  requirePermission(PERMISSIONS.CASE_SUMMARIZE_DOCS),
+  caseController.summarizeDocuments.bind(caseController)
+);
+
+router.post(
+  '/:id/documents/confirm-briefing',
+  requirePermission(PERMISSIONS.CASE_CONFIRM_BRIEFING),
+  caseController.confirmBriefing.bind(caseController)
+);
+
+router.post(
+  '/:id/documents/briefings/:briefingId/confirm',
+  requirePermission(PERMISSIONS.CASE_CONFIRM_BRIEFING),
+  caseController.confirmBriefing.bind(caseController)
+);
+
+// T8 Multi-Agent Case Triage
+router.post(
+  '/:id/triage',
+  requirePermission(PERMISSIONS.CASE_TRIAGE),
+  caseController.triageCase.bind(caseController)
+);
+
+router.post(
+  '/:id/triage/override',
+  requirePermission(PERMISSIONS.CASE_TRIAGE_OVERRIDE),
+  caseController.overrideTriage.bind(caseController)
+);
+
+router.post(
+  '/:id/triage/:triageId/override',
+  requirePermission(PERMISSIONS.CASE_TRIAGE_OVERRIDE),
+  caseController.overrideTriage.bind(caseController)
 );
 
 module.exports = router;

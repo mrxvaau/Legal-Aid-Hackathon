@@ -1035,6 +1035,91 @@ function seed(dbInstance = null) {
       JSON.stringify({ lawyer_status: 'SILENT_UNRESPONSIVE', alert_level: 'CRITICAL_OVERDUE' }),
       'Automated deadline monitor flagged panel lawyer inactive for 102 days. Show-cause notice queued.'
     );
+
+    // ========================================================================
+    // SCENARIO 6: RIPON STANDALONE APPLICANT (A2 ACCESSIBILITY FIX)
+    // Ripon has his own independent legal aid case as a primary applicant
+    // (Persons with Disabilities Rights and Protection Act 2013)
+    // Non-visual, screen-reader optimized, voice-first, no CAPTCHA, no visual OTP
+    // ========================================================================
+    const appRiponId = 'APP-20260920-RIPON';
+    const caseRiponId = 'CASE-20260920-RIPON';
+
+    insertAppStmt.run(
+      appRiponId,
+      'PER-CITIZEN-RIPON',
+      null, // Self-represented applicant, no representative needed
+      'DISABILITY_RIGHTS',
+      'VOICE_WEB_ACCESSIBLE',
+      'DLAO Dhaka',
+      'CONVERTED_TO_CASE',
+      'Independent disability rights and public transport accessibility claim filed directly by Ripon via accessible non-visual portal.',
+      'প্রতিবন্ধী ব্যক্তির অধিকার ও সুরক্ষা আইন ২০১৩ অনুযায়ী স্বাধীনভাবে দায়েরকৃত গণপরিবহন অভিগম্যতা মামলা।',
+      JSON.stringify({
+        is_independent_applicant: true,
+        accessibility_mode: 'NON_VISUAL_VOICE_FIRST',
+        no_captcha_verified: true,
+        no_visual_otp_required: true,
+        screen_reader_optimized: true
+      }),
+      ROLES.CITIZEN_APPLICANT,
+      'PER-CITIZEN-RIPON'
+    );
+
+    insertCaseStmt.run(
+      caseRiponId,
+      appRiponId,
+      'DLAO-DHK-2026-0888',
+      'Ripon vs Dhaka Metro Bus Consortium - Public Transport Disability Access',
+      'রিপন বনাম ঢাকা মেট্রো বাস কনসোর্টিয়াম - গণপরিবহনে প্রতিবন্ধী ব্যক্তির প্রবেশাধিকার নিশ্চিতকরণ',
+      'CIVIL_GENERAL',
+      CASE_STATES.ASSIGNED,
+      'HIGH',
+      'DLAO Dhaka',
+      'Court of Joint District Judge 1st Court Dhaka',
+      'PER-OFFICER-B1',
+      'PER-LAWYER-B5',
+      '2026-09-18T10:00:00Z',
+      '2026-09-22T14:00:00Z',
+      'ACTIVE',
+      'NORMAL',
+      '16699-RIPON-8888',
+      JSON.stringify({
+        independent_applicant: true,
+        applicant_is_visually_impaired: true,
+        non_visual_interaction: true
+      })
+    );
+
+    // Link Ripon as primary APPLICANT in his own case
+    insertCasePersonStmt.run(
+      'CP-RIPON-SELF',
+      caseRiponId,
+      'PER-CITIZEN-RIPON',
+      'APPLICANT',
+      'SELF',
+      null,
+      1,
+      'Ripon acting as independent primary applicant without sighted helper.'
+    );
+
+    // Initial audit log for Ripon standalone case creation
+    insertAuditStmt.run(
+      'AUD-RIPON-001',
+      caseRiponId,
+      appRiponId,
+      AUDIT_ACTIONS.CASE_CREATED,
+      'PER-CITIZEN-RIPON',
+      ROLES.CITIZEN_APPLICANT,
+      null,
+      JSON.stringify({
+        case_id: caseRiponId,
+        applicant_id: 'PER-CITIZEN-RIPON',
+        inquiry_code: '16699-RIPON-8888',
+        accessibility_mode: 'NON_VISUAL_VOICE_FIRST'
+      }),
+      'Standalone accessible case created independently by Ripon (Non-visual voice-first intake).'
+    );
   });
 
   seedTx();

@@ -10,6 +10,12 @@ router.post(
   applicationController.createApplication.bind(applicationController)
 );
 
+router.post(
+  '/check-duplicate',
+  requirePermission(PERMISSIONS.APPLICATION_CREATE),
+  applicationController.checkDuplicate.bind(applicationController)
+);
+
 router.get(
   '/:id',
   requirePermission(PERMISSIONS.APPLICATION_READ),

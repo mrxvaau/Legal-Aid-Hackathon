@@ -7,6 +7,8 @@ const applicationRoutes = require('./routes/applicationRoutes');
 const caseRoutes = require('./routes/caseRoutes');
 const metaRoutes = require('./routes/metaRoutes');
 const syncRoutes = require('./routes/syncRoutes');
+const incidentRoutes = require('./routes/incidentRoutes');
+const reportRoutes = require('./routes/reportRoutes');
 const caseController = require('./controllers/caseController');
 
 const app = express();
@@ -26,6 +28,8 @@ app.use(authMiddleware);
 // API Routes
 app.use('/api/applications', applicationRoutes);
 app.use('/api/cases', caseRoutes);
+app.use('/api/incidents', incidentRoutes);
+app.use('/api/reports', reportRoutes);
 app.get('/api/citizen/status', caseController.getCitizenStatus.bind(caseController));
 app.post('/api/citizen/status', caseController.getCitizenStatus.bind(caseController));
 app.use('/api/sync', syncRoutes);

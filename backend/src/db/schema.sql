@@ -65,7 +65,7 @@ CREATE TABLE IF NOT EXISTS cases (
     status TEXT NOT NULL CHECK(status IN (
         'NEW', 'INTAKE', 'UNDER_REVIEW', 'ASSIGNED', 'IN_PROGRESS', 
         'REFERRED', 'MEDIATION', 'SETTLEMENT_DRAFT', 'WAITING_FOR_ACTION', 
-        'RESOLVED', 'CLOSED'
+        'RESOLVED', 'CLOSED', 'ESCALATION_REQUIRED'
     )),
     priority TEXT NOT NULL DEFAULT 'MEDIUM' CHECK(priority IN ('LOW', 'MEDIUM', 'HIGH', 'URGENT')),
     intake_office TEXT NOT NULL,
@@ -269,6 +269,7 @@ CREATE TABLE IF NOT EXISTS referrals (
     reason TEXT NOT NULL,
     reason_bn TEXT,
     notes TEXT,
+    transfer_count INTEGER NOT NULL DEFAULT 1,
     transferred_at TEXT,
     accepted_at TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -279,10 +280,25 @@ CREATE TABLE IF NOT EXISTS referrals (
 CREATE INDEX IF NOT EXISTS idx_referrals_case ON referrals(case_id);
 CREATE INDEX IF NOT EXISTS idx_referrals_status ON referrals(status);
 
--- 11. Incident Links (Evidence Sensitivity & Police Jurisdiction)
+-- 11. Incidents & Incident Links (Multi-Applicant Grouping & Evidence Sharing)
+CREATE TABLE IF NOT EXISTS incidents (
+    id TEXT PRIMARY KEY,
+    incident_label TEXT NOT NULL UNIQUE,
+    title TEXT,
+    incident_type TEXT NOT NULL DEFAULT 'MASS_INCIDENT',
+    incident_date TEXT,
+    location TEXT,
+    description TEXT,
+    shared_evidence_ref TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_incidents_label ON incidents(incident_label);
+
 CREATE TABLE IF NOT EXISTS incident_links (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL,
+    incident_label TEXT,
     incident_type TEXT NOT NULL,
     incident_date TEXT NOT NULL,
     location TEXT NOT NULL,
@@ -302,6 +318,7 @@ CREATE TABLE IF NOT EXISTS incident_links (
 );
 
 CREATE INDEX IF NOT EXISTS idx_incidents_case ON incident_links(case_id);
+CREATE INDEX IF NOT EXISTS idx_incident_links_label ON incident_links(incident_label);
 
 -- 12. Sensitive Evidence Vault (Flow 3 - Information Governance & Chain-of-Custody)
 CREATE TABLE IF NOT EXISTS evidence_vault (
@@ -335,4 +352,95 @@ CREATE TABLE IF NOT EXISTS evidence_vault (
 
 CREATE INDEX IF NOT EXISTS idx_evidence_case ON evidence_vault(case_id);
 CREATE INDEX IF NOT EXISTS idx_evidence_sensitivity ON evidence_vault(sensitivity_level);
+
+-- 13. Secure E-Signatures & Document Integrity (T11)
+-- GUARDRAIL: Proves DOCUMENT INTEGRITY only via SHA-256 digest at signing time.
+-- Does NOT prove legal signature validity, identity, or consent.
+CREATE TABLE IF NOT EXISTS signatures (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    signer_person_id TEXT NOT NULL,
+    signer_role TEXT,
+    document_id TEXT,
+    document_title TEXT,
+    document_hash TEXT NOT NULL, -- SHA-256 hash of document content
+    signed_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sync_status TEXT NOT NULL DEFAULT 'SYNCED', -- SYNCED, PENDING_SYNC, OFFLINE_QUEUED
+    signature_metadata TEXT, -- JSON
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+    FOREIGN KEY (signer_person_id) REFERENCES people(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_signatures_case ON signatures(case_id);
+CREATE INDEX IF NOT EXISTS idx_signatures_signer ON signatures(signer_person_id);
+
+-- 14. Settlement Drafts (T7)
+-- GUARDRAIL: Output is saved as status=DRAFT. Cannot be marked final without
+-- a separate human-review confirmation action, which is itself audit-logged.
+CREATE TABLE IF NOT EXISTS settlement_drafts (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    template_type TEXT NOT NULL DEFAULT 'ADR_GENERAL',
+    title TEXT NOT NULL,
+    terms_json TEXT NOT NULL, -- JSON object of fields with is_ai_inferred: true/false
+    inconsistencies_json TEXT, -- JSON array of detected inconsistencies
+    status TEXT NOT NULL DEFAULT 'DRAFT' CHECK(status IN ('DRAFT', 'CONFIRMED_FINAL', 'REJECTED')),
+    created_by_id TEXT NOT NULL,
+    created_by_role TEXT NOT NULL,
+    confirmed_by_id TEXT,
+    confirmed_by_role TEXT,
+    confirmed_at TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_settlement_drafts_case ON settlement_drafts(case_id);
+
+-- 15. Document Briefings & Checklist (T6)
+-- GUARDRAIL: Every statement must cite source document. Unclear text flagged as unclear.
+-- Must be confirmed by human officer before formal briefing use.
+CREATE TABLE IF NOT EXISTS document_briefings (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    summary_json TEXT NOT NULL, -- JSON array of statements with source_document_ref and is_unclear flag
+    missing_items_json TEXT, -- JSON array of missing required checklist items
+    is_confirmed_by_officer INTEGER NOT NULL DEFAULT 0,
+    confirmed_by_id TEXT,
+    confirmed_at TEXT,
+    officer_notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_doc_briefings_case ON document_briefings(case_id);
+
+-- 16. Case Triage Results & Officer Overrides (T8)
+-- GUARDRAIL: Rule-based triage components may conflict. Conflicts are surfaced explicitly.
+-- Final priority and routing can only be confirmed or overridden by human officer.
+CREATE TABLE IF NOT EXISTS case_triage_results (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    categorization_result TEXT NOT NULL, -- JSON
+    risk_result TEXT NOT NULL, -- JSON
+    jurisdiction_result TEXT NOT NULL, -- JSON
+    completeness_result TEXT NOT NULL, -- JSON
+    has_conflict INTEGER NOT NULL DEFAULT 0,
+    conflict_details TEXT, -- JSON description of disagreement
+    recommended_priority TEXT NOT NULL,
+    recommended_authority TEXT NOT NULL,
+    recommended_action TEXT NOT NULL,
+    final_priority TEXT NOT NULL,
+    final_authority TEXT NOT NULL,
+    is_overridden INTEGER NOT NULL DEFAULT 0,
+    override_reason TEXT,
+    reviewed_by_id TEXT,
+    reviewed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_case_triage_case ON case_triage_results(case_id);
 

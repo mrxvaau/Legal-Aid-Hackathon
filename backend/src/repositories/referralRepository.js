@@ -7,8 +7,8 @@ class ReferralRepository {
       INSERT INTO referrals (
         id, case_id, referral_type, target_authority_type, referring_office, receiving_office,
         referring_role, receiving_role, status, acknowledgement_status, assigned_officer_id,
-        reason, reason_bn, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        reason, reason_bn, notes, transfer_count
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -25,10 +25,17 @@ class ReferralRepository {
       ref.assigned_officer_id || null,
       ref.reason,
       ref.reason_bn || null,
-      ref.notes || null
+      ref.notes || null,
+      ref.transfer_count || 1
     );
 
     return this.findById(ref.id);
+  }
+
+  countByCaseId(caseId) {
+    const db = getDb();
+    const row = db.prepare('SELECT COUNT(*) as count FROM referrals WHERE case_id = ?').get(caseId);
+    return row ? row.count : 0;
   }
 
   findById(id) {

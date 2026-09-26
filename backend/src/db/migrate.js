@@ -26,6 +26,7 @@ function migrate(dbInstance = null) {
   ensureColumn(db, 'cases', 'deadline_alert_level', "TEXT DEFAULT 'NORMAL'");
   ensureColumn(db, 'cases', 'citizen_inquiry_code', 'TEXT');
 
+  ensureColumn(db, 'incident_links', 'incident_label', 'TEXT');
   ensureColumn(db, 'incident_links', 'is_sensitive_evidence', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'incident_links', 'evidence_privacy_level', "TEXT DEFAULT 'STANDARD'");
   ensureColumn(db, 'incident_links', 'redacted_summary', 'TEXT');
@@ -34,6 +35,7 @@ function migrate(dbInstance = null) {
   ensureColumn(db, 'referrals', 'acknowledgement_status', "TEXT DEFAULT 'UNACKNOWLEDGED'");
   ensureColumn(db, 'referrals', 'assigned_officer_id', 'TEXT');
   ensureColumn(db, 'referrals', 'acknowledged_at', 'TEXT');
+  ensureColumn(db, 'referrals', 'transfer_count', 'INTEGER DEFAULT 1');
 
   ensureColumn(db, 'provenance_log', 'is_secondhand_report', 'INTEGER DEFAULT 0');
   ensureColumn(db, 'provenance_log', 'reported_for_person_id', 'TEXT');

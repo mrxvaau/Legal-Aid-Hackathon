@@ -1,4 +1,5 @@
 const applicationService = require('../services/applicationService');
+const duplicateDetectionService = require('../services/duplicateDetectionService');
 const { validateApplicationPayload } = require('../validators/schemas');
 
 class ApplicationController {
@@ -38,6 +39,16 @@ class ApplicationController {
       };
       const applications = applicationService.listApplications(filters);
       res.json({ success: true, data: applications, count: applications.length });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  checkDuplicate(req, res, next) {
+    try {
+      const actor = req.user;
+      const result = duplicateDetectionService.checkDuplicate(req.body, actor);
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

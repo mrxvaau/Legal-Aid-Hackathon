@@ -7,6 +7,10 @@ const incidentService = require('../services/incidentService');
 const safeContactService = require('../services/safeContactService');
 const evidenceService = require('../services/evidenceService');
 const lawyerAccountabilityService = require('../services/lawyerAccountabilityService');
+const signatureService = require('../services/signatureService');
+const settlementDraftingService = require('../services/settlementDraftingService');
+const documentSummarizationService = require('../services/documentSummarizationService');
+const triageService = require('../services/triageService');
 const {
   validateCasePayload,
   validateTaskPayload,
@@ -52,6 +56,19 @@ class CaseController {
       };
       const cases = caseService.listCases(filters);
       res.json({ success: true, data: cases, count: cases.length });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  searchCases(req, res, next) {
+    try {
+      const q = req.query.q || req.query.query || '';
+      if (!q.trim()) {
+        return res.json({ success: true, data: [], count: 0, query: '' });
+      }
+      const results = caseService.searchCases(q);
+      res.json({ success: true, data: results, count: results.length, query: q });
     } catch (err) {
       next(err);
     }
@@ -335,8 +352,28 @@ class CaseController {
   getIncidents(req, res, next) {
     try {
       const { id } = req.params;
-      const incidents = incidentService.getIncidentsForCase(id);
+      const incidents = incidentService.getIncidentsByCaseId(id);
       res.json({ success: true, data: incidents, count: incidents.length });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  linkIncident(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { incident_label, incident_type, incident_date, location, description } = req.body;
+      if (!incident_label) {
+        return res.status(400).json({ success: false, message: 'incident_label is required' });
+      }
+      const result = incidentService.linkCaseToIncident(id, {
+        incident_label,
+        incident_type,
+        incident_date,
+        location,
+        description
+      }, req.user);
+      res.status(201).json({ success: true, data: result });
     } catch (err) {
       next(err);
     }
@@ -537,6 +574,207 @@ class CaseController {
       }
 
       res.json({ success: true, data: statusData });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // T2 Jurisdiction Decision (Ping-Pong Final Authority)
+  decideJurisdiction(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { definitive_office, rationale, status } = req.body;
+      if (!definitive_office || !rationale) {
+        return res.status(400).json({
+          success: false,
+          message: 'definitive_office and rationale are required'
+        });
+      }
+      const updatedCase = caseService.decideJurisdiction(id, { definitive_office, rationale, status }, req.user);
+      res.json({
+        success: true,
+        data: updatedCase,
+        message: 'Definitive jurisdiction successfully established by human officer'
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // T11 Secure E-Signature & Document Integrity
+  signDocument(req, res, next) {
+    try {
+      const { id } = req.params;
+      const {
+        signer_person_id,
+        signer_role,
+        document_id,
+        document_title,
+        document_content,
+        document_hash,
+        signed_at,
+        sync_status,
+        signature_metadata
+      } = req.body;
+
+      if (!signer_person_id) {
+        return res.status(400).json({
+          success: false,
+          message: 'signer_person_id is required'
+        });
+      }
+      if (!document_content && !document_hash) {
+        return res.status(400).json({
+          success: false,
+          message: 'Either document_content or document_hash is required'
+        });
+      }
+
+      const result = signatureService.signDocument(
+        id,
+        {
+          signer_person_id,
+          signer_role,
+          document_id,
+          document_title,
+          document_content,
+          document_hash,
+          signed_at,
+          sync_status,
+          signature_metadata
+        },
+        req.user
+      );
+
+      res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  verifySignatures(req, res, next) {
+    try {
+      const { id } = req.params;
+      const document_content = req.query.document_content || req.body?.document_content || null;
+      const result = signatureService.verifySignatures(id, document_content);
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // T7 Settlement Drafting Assistant
+  async draftSettlement(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { mediator_notes, template_type } = req.body;
+      if (!mediator_notes) {
+        return res.status(400).json({
+          success: false,
+          message: 'mediator_notes is required'
+        });
+      }
+      const draft = await settlementDraftingService.draftSettlement(
+        id,
+        { mediator_notes, template_type },
+        req.user
+      );
+      res.status(201).json({ success: true, data: draft });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  confirmSettlement(req, res, next) {
+    try {
+      const { id, settlementId } = req.params;
+      const { notes, resolution_notes } = req.body;
+      const result = settlementDraftingService.confirmSettlement(
+        id,
+        settlementId,
+        { notes, resolution_notes },
+        req.user
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // T6 Document Summarization & Checklist Agent
+  summarizeDocuments(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { documents } = req.body;
+      if (!documents || !Array.isArray(documents) || documents.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: 'documents array is required and must not be empty'
+        });
+      }
+      const briefing = documentSummarizationService.summarizeDocuments(
+        id,
+        { documents },
+        req.user
+      );
+      res.status(201).json({ success: true, data: briefing });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  confirmBriefing(req, res, next) {
+    try {
+      const { id } = req.params;
+      const briefingId = req.params.briefingId || req.body.briefingId;
+      const { officer_notes } = req.body;
+      if (!briefingId) {
+        return res.status(400).json({
+          success: false,
+          message: 'briefingId is required'
+        });
+      }
+      const result = documentSummarizationService.confirmBriefing(
+        id,
+        briefingId,
+        { officer_notes },
+        req.user
+      );
+      res.json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // T8 Multi-Agent Case Triage
+  triageCase(req, res, next) {
+    try {
+      const { id } = req.params;
+      const result = triageService.runTriage(id, req.user);
+      res.status(201).json({ success: true, data: result });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  overrideTriage(req, res, next) {
+    try {
+      const { id } = req.params;
+      const triageId = req.params.triageId || req.body.triageId;
+      const { override_priority, override_authority, override_reason } = req.body;
+      if (!triageId) {
+        return res.status(400).json({ success: false, message: 'triageId is required' });
+      }
+      if (!override_reason) {
+        return res.status(400).json({ success: false, message: 'override_reason is required' });
+      }
+      const result = triageService.overrideTriage(
+        id,
+        triageId,
+        { override_priority, override_authority, override_reason },
+        req.user
+      );
+      res.json({ success: true, data: result });
     } catch (err) {
       next(err);
     }

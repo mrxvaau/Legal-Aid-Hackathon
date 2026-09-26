@@ -324,6 +324,7 @@ class LawyerAccountabilityService {
     // Formulate strictly sanitized, privacy-safe response
     const safePayload = {
       case_number: caseRecord.case_number,
+      applicant_name: caseRecord.applicant_name || null,
       title: caseRecord.title,
       title_bn: caseRecord.title_bn,
       category: caseRecord.category,

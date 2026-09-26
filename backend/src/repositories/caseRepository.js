@@ -81,6 +81,30 @@ class CaseRepository {
     return this.findById(id);
   }
 
+  updatePriority(id, priority) {
+    const db = getDb();
+    db.prepare(`
+      UPDATE cases
+      SET priority = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(priority, id);
+
+    return this.findById(id);
+  }
+
+  setJurisdiction(id, definitiveOffice, newStatus) {
+    const db = getDb();
+    db.prepare(`
+      UPDATE cases
+      SET intake_office = ?,
+          status = ?,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(definitiveOffice, newStatus || 'IN_PROGRESS', id);
+
+    return this.findById(id);
+  }
+
   assignLawyer(id, lawyerId) {
     const db = getDb();
     db.prepare(`
@@ -230,6 +254,40 @@ class CaseRepository {
          OR c.id = ?
       LIMIT 1
     `).get(term, term, term, term);
+  }
+
+  search(queryTerm) {
+    if (!queryTerm) return [];
+    const db = getDb();
+    const term = `%${queryTerm.trim()}%`;
+    return db.prepare(`
+      SELECT 
+        c.*,
+        a.category AS app_category,
+        a.intake_channel,
+        applicant.full_name AS applicant_name,
+        applicant.full_name_bn AS applicant_name_bn,
+        applicant.national_id AS applicant_nid,
+        applicant.phone AS applicant_phone,
+        rep.full_name AS representative_name,
+        lawyer.full_name AS assigned_lawyer_name
+      FROM cases c
+      JOIN applications a ON c.application_id = a.id
+      JOIN people applicant ON a.applicant_id = applicant.id
+      LEFT JOIN people rep ON a.representative_id = rep.id
+      LEFT JOIN people lawyer ON c.assigned_lawyer_id = lawyer.id
+      WHERE 
+        c.case_number LIKE ? OR
+        c.citizen_inquiry_code LIKE ? OR
+        c.application_id LIKE ? OR
+        c.title LIKE ? OR
+        c.title_bn LIKE ? OR
+        applicant.full_name LIKE ? OR
+        applicant.full_name_bn LIKE ? OR
+        applicant.national_id LIKE ? OR
+        applicant.phone LIKE ?
+      ORDER BY c.created_at DESC
+    `).all(term, term, term, term, term, term, term, term, term);
   }
 
   recordLawyerActivity(id, activityTimestamp = null) {

@@ -156,6 +156,10 @@ class CaseService {
     return caseRepository.list(filters);
   }
 
+  searchCases(q) {
+    return caseRepository.search(q);
+  }
+
   updateStatus(id, newStatus, actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }, notes = null) {
     if (!Object.values(CASE_STATES).includes(newStatus)) {
       throw new Error(`Invalid case status: '${newStatus}'. Must be one of: ${Object.values(CASE_STATES).join(', ')}`);
@@ -257,6 +261,38 @@ class CaseService {
     });
 
     return this.getCase(caseId, { includeAll: true }, actor);
+  }
+
+  decideJurisdiction(caseId, { definitive_office, rationale, status = 'IN_PROGRESS' }, actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }) {
+    if (!caseId) throw new Error('case_id is required');
+    if (!definitive_office) throw new Error('definitive_office is required');
+    if (!rationale) throw new Error('rationale is required');
+
+    const previousCase = caseRepository.findById(caseId);
+    if (!previousCase) throw new Error(`Case ${caseId} not found`);
+
+    // Human officer establishes definitive jurisdiction
+    const newStatus = status || CASE_STATES.IN_PROGRESS;
+    const updatedCase = caseRepository.setJurisdiction(caseId, definitive_office, newStatus);
+
+    auditService.recordAuditEvent({
+      case_id: caseId,
+      action: AUDIT_ACTIONS.JURISDICTION_DECIDED,
+      actor_id: actor.id || 'SYSTEM',
+      actor_role: actor.role || 'B1_DLAO_OFFICER',
+      payload_before: {
+        intake_office: previousCase.intake_office,
+        status: previousCase.status
+      },
+      payload_after: {
+        intake_office: definitive_office,
+        status: newStatus,
+        rationale
+      },
+      notes: `Definitive jurisdiction established by officer ${actor.name || actor.id}: "${definitive_office}". Rationale: "${rationale}"`
+    });
+
+    return updatedCase;
   }
 }
 

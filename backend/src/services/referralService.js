@@ -2,7 +2,8 @@ const referralRepository = require('../repositories/referralRepository');
 const caseRepository = require('../repositories/caseRepository');
 const auditService = require('./auditService');
 const idGenerator = require('../utils/idGenerator');
-const { AUDIT_ACTIONS, CASE_STATES } = require('../utils/constants');
+const taskService = require('./taskService');
+const { AUDIT_ACTIONS, CASE_STATES, ROLES } = require('../utils/constants');
 
 class ReferralService {
   createReferral({
@@ -23,6 +24,9 @@ class ReferralService {
     if (!referring_office || !receiving_office) throw new Error('referring_office and receiving_office are required');
     if (!reason) throw new Error('reason is required');
 
+    const existingTransfers = referralRepository.countByCaseId(case_id);
+    const transferCount = existingTransfers + 1;
+
     const id = idGenerator.referralId();
     const referral = referralRepository.create({
       id,
@@ -37,22 +41,57 @@ class ReferralService {
       acknowledgement_status: 'UNACKNOWLEDGED',
       reason,
       reason_bn,
-      notes
+      notes,
+      transfer_count: transferCount
     });
 
-    // When an internal referral or DLAO referral happens, case state changes to REFERRED if not already
-    const caseData = caseRepository.findById(case_id);
-    if (caseData && caseData.status !== CASE_STATES.REFERRED) {
-      caseRepository.updateStatus(case_id, CASE_STATES.REFERRED);
+    // Check for Jurisdiction Ping-Pong: 2nd or greater transfer on the same case
+    if (transferCount >= 2) {
+      // Auto-set case status to ESCALATION_REQUIRED
+      caseRepository.updateStatus(case_id, CASE_STATES.ESCALATION_REQUIRED);
+
+      // Create urgent follow-up review task for senior officer (B1_DLAO_OFFICER)
+      const reviewTask = taskService.createTask({
+        case_id,
+        title: `Senior Review: Jurisdiction Ping-Pong Escalation (Transfer #${transferCount})`,
+        title_bn: `জরুরি ঊর্ধ্বতন পর্যালোচনা: এখতিয়ার সংক্রান্ত জটিলতা (স্থানান্তর ক্রম #${transferCount})`,
+        description: `Case has experienced multiple transfers/returns (${transferCount}) between ${referring_office} and ${receiving_office}. Status auto-set to ESCALATION_REQUIRED. Senior officer must establish definitive jurisdiction.`,
+        assigned_to_role: ROLES.B1_DLAO_OFFICER,
+        assigned_to_user_id: actor.id || 'PER-OFFICER-B1',
+        due_date: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString().substring(0, 10),
+        priority: 'URGENT',
+        actor
+      });
+
       auditService.recordAuditEvent({
         case_id,
-        action: AUDIT_ACTIONS.STATUS_CHANGED,
+        action: AUDIT_ACTIONS.JURISDICTION_PING_PONG_ESCALATED,
         actor_id: actor.id || 'SYSTEM',
         actor_role: actor.role || 'B1_DLAO_OFFICER',
-        payload_before: { status: caseData.status },
-        payload_after: { status: CASE_STATES.REFERRED },
-        notes: `Case status changed to REFERRED due to referral ${id}`
+        payload_after: {
+          transfer_count: transferCount,
+          referring_office,
+          receiving_office,
+          task_id: reviewTask.id,
+          status: CASE_STATES.ESCALATION_REQUIRED
+        },
+        notes: `Jurisdiction ping-pong detected (${transferCount} transfers). Case escalated to ESCALATION_REQUIRED. System recommends senior review; jurisdiction must be decided by human officer.`
       });
+    } else {
+      // 1st transfer normal behavior
+      const caseData = caseRepository.findById(case_id);
+      if (caseData && caseData.status !== CASE_STATES.REFERRED) {
+        caseRepository.updateStatus(case_id, CASE_STATES.REFERRED);
+        auditService.recordAuditEvent({
+          case_id,
+          action: AUDIT_ACTIONS.STATUS_CHANGED,
+          actor_id: actor.id || 'SYSTEM',
+          actor_role: actor.role || 'B1_DLAO_OFFICER',
+          payload_before: { status: caseData.status },
+          payload_after: { status: CASE_STATES.REFERRED },
+          notes: `Case status changed to REFERRED due to referral ${id}`
+        });
+      }
     }
 
     auditService.recordAuditEvent({
@@ -61,7 +100,7 @@ class ReferralService {
       actor_id: actor.id || 'SYSTEM',
       actor_role: actor.role || 'B1_DLAO_OFFICER',
       payload_after: referral,
-      notes: `Referral created from ${referring_office} to ${receiving_office} (${referral_type})`
+      notes: `Referral #${transferCount} created from ${referring_office} to ${receiving_office} (${referral_type})`
     });
 
     return referral;
