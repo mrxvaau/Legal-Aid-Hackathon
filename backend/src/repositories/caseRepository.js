@@ -15,6 +15,7 @@ class CaseRepository {
         a.summary_bn AS application_summary_bn,
         lawyer.full_name AS assigned_lawyer_name,
         lawyer.full_name_bn AS assigned_lawyer_name_bn,
+        lawyer.phone AS assigned_lawyer_phone,
         officer.full_name AS assigned_officer_name
       FROM cases c
       JOIN applications a ON c.application_id = a.id
@@ -39,8 +40,10 @@ class CaseRepository {
       INSERT INTO cases (
         id, application_id, case_number, title, title_bn, category,
         status, priority, intake_office, court_name,
-        assigned_officer_id, assigned_lawyer_id, details_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        assigned_officer_id, assigned_lawyer_id,
+        filing_date, lawyer_last_active_at, lawyer_status,
+        deadline_alert_level, citizen_inquiry_code, details_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -56,6 +59,11 @@ class CaseRepository {
       c.court_name || null,
       c.assigned_officer_id || null,
       c.assigned_lawyer_id || null,
+      c.filing_date || new Date().toISOString(),
+      c.lawyer_last_active_at || null,
+      c.lawyer_status || 'ACTIVE',
+      c.deadline_alert_level || 'NORMAL',
+      c.citizen_inquiry_code || null,
       detailsJson
     );
 
@@ -77,7 +85,10 @@ class CaseRepository {
     const db = getDb();
     db.prepare(`
       UPDATE cases
-      SET assigned_lawyer_id = ?, updated_at = datetime('now')
+      SET assigned_lawyer_id = ?,
+          lawyer_status = 'ACTIVE',
+          lawyer_last_active_at = datetime('now'),
+          updated_at = datetime('now')
       WHERE id = ?
     `).run(lawyerId, id);
 
@@ -186,13 +197,79 @@ class CaseRepository {
       params.push(filters.intake_office);
     }
     if (filters.search) {
-      query += ' AND (c.case_number LIKE ? OR c.title LIKE ? OR applicant.full_name LIKE ?)';
+      query += ' AND (c.case_number LIKE ? OR c.title LIKE ? OR applicant.full_name LIKE ? OR rep.full_name LIKE ? OR c.citizen_inquiry_code LIKE ? OR c.application_id LIKE ?)';
       const term = `%${filters.search}%`;
-      params.push(term, term, term);
+      params.push(term, term, term, term, term, term);
     }
 
     query += ' ORDER BY c.created_at DESC';
     return db.prepare(query).all(...params);
+  }
+
+  findByInquiryOrId(queryTerm) {
+    if (!queryTerm) return null;
+    const db = getDb();
+    const term = queryTerm.trim();
+    return db.prepare(`
+      SELECT 
+        c.*,
+        a.category AS app_category,
+        a.intake_channel,
+        applicant.full_name AS applicant_name,
+        applicant.full_name_bn AS applicant_name_bn,
+        rep.full_name AS representative_name,
+        lawyer.full_name AS assigned_lawyer_name
+      FROM cases c
+      JOIN applications a ON c.application_id = a.id
+      JOIN people applicant ON a.applicant_id = applicant.id
+      LEFT JOIN people rep ON a.representative_id = rep.id
+      LEFT JOIN people lawyer ON c.assigned_lawyer_id = lawyer.id
+      WHERE c.citizen_inquiry_code = ?
+         OR c.case_number = ?
+         OR c.application_id = ?
+         OR c.id = ?
+      LIMIT 1
+    `).get(term, term, term, term);
+  }
+
+  recordLawyerActivity(id, activityTimestamp = null) {
+    const db = getDb();
+    const ts = activityTimestamp || new Date().toISOString();
+    db.prepare(`
+      UPDATE cases
+      SET lawyer_last_active_at = ?,
+          lawyer_status = 'ACTIVE',
+          deadline_alert_level = 'NORMAL',
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(ts, id);
+    return this.findById(id);
+  }
+
+  updateLawyerAccountability(id, { lawyer_status, deadline_alert_level }) {
+    const db = getDb();
+    const updates = [];
+    const params = [];
+    if (lawyer_status) {
+      updates.push('lawyer_status = ?');
+      params.push(lawyer_status);
+    }
+    if (deadline_alert_level) {
+      updates.push('deadline_alert_level = ?');
+      params.push(deadline_alert_level);
+    }
+    if (updates.length === 0) return this.findById(id);
+
+    updates.push("updated_at = datetime('now')");
+    params.push(id);
+
+    db.prepare(`
+      UPDATE cases
+      SET ${updates.join(', ')}
+      WHERE id = ?
+    `).run(...params);
+
+    return this.findById(id);
   }
 }
 

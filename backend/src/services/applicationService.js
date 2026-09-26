@@ -7,6 +7,17 @@ const { AUDIT_ACTIONS, PROVENANCE_SOURCES } = require('../utils/constants');
 
 class ApplicationService {
   createApplication(payload, actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }) {
+    // Check idempotency if client_request_id is provided
+    if (payload.client_request_id) {
+      const existingApp = applicationRepository.findByClientRequestId(payload.client_request_id);
+      if (existingApp) {
+        return {
+          ...existingApp,
+          is_idempotent_duplicate: true
+        };
+      }
+    }
+
     let applicantId = payload.applicant_id;
     let representativeId = payload.representative_id;
 
@@ -46,6 +57,7 @@ class ApplicationService {
     const appId = payload.id || idGenerator.applicationId();
     const app = applicationRepository.create({
       id: appId,
+      client_request_id: payload.client_request_id || null,
       applicant_id: applicantId,
       representative_id: representativeId || null,
       category: payload.category || 'CIVIL_GENERAL',
@@ -83,6 +95,8 @@ class ApplicationService {
           target_language: prov.target_language || 'bn',
           author_id: prov.author_id || actor.id,
           author_role: prov.author_role || actor.role,
+          is_secondhand_report: prov.is_secondhand_report ? 1 : 0,
+          reported_for_person_id: prov.reported_for_person_id || null,
           source_details: prov.source_details || null,
           raw_content: prov.raw_content || payload.summary,
           processed_content: prov.processed_content || payload.summary,

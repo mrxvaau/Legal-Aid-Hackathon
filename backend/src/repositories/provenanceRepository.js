@@ -11,8 +11,9 @@ class ProvenanceRepository {
       INSERT INTO provenance_log (
         id, case_id, application_id, entity_type, entity_id, field_name,
         source_type, source_language, target_language, author_id, author_role,
+        is_secondhand_report, reported_for_person_id,
         source_details, raw_content, processed_content, confirmed_by, confirmed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
@@ -27,6 +28,8 @@ class ProvenanceRepository {
       entry.target_language || null,
       entry.author_id || null,
       entry.author_role,
+      entry.is_secondhand_report ? 1 : 0,
+      entry.reported_for_person_id || null,
       sourceDetails,
       entry.raw_content || null,
       entry.processed_content || null,

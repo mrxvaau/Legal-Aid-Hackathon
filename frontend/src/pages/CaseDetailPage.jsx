@@ -7,6 +7,10 @@ import TasksCard from '../components/TasksCard';
 import ReferralsCard from '../components/ReferralsCard';
 import IncidentsCard from '../components/IncidentsCard';
 import AuditTrailView from '../components/AuditTrailView';
+import SafeContactCard from '../components/SafeContactCard';
+import EvidenceVaultCard from '../components/EvidenceVaultCard';
+import LawyerAccountabilityCard from '../components/LawyerAccountabilityCard';
+import GoldenThreadCard from '../components/GoldenThreadCard';
 import api from '../services/api';
 
 const ALL_STATES = [
@@ -99,24 +103,11 @@ export default function CaseDetailPage({ caseId, onBack }) {
         </button>
       </div>
 
-      {/* Mandatory Application Traceability Banner */}
-      <div className="traceability-banner">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-          <span style={{ fontSize: '20px' }}>🔗</span>
-          <div>
-            <strong>Mandatory Golden Thread Traceability:</strong>
-            <span style={{ marginLeft: '6px' }}>
-              Every Case ID derives from Application ID:
-            </span>
-            <span className="trace-id-badge">{caseData.application_id}</span>
-            ➔
-            <span className="trace-id-badge">{caseData.id}</span>
-          </div>
-        </div>
-        <div className="intake-channel-badge">
-          Channel: <strong>{caseData.intake_channel || 'DIRECT'}</strong>
-        </div>
-      </div>
+      {/* Golden Thread Integrated Traceability Stepper */}
+      <GoldenThreadCard
+        caseData={caseData}
+        onSelectTab={setActiveTab}
+      />
 
       {/* Case Header Card */}
       <div className="case-header-card">
@@ -199,13 +190,146 @@ export default function CaseDetailPage({ caseId, onBack }) {
         )}
       </div>
 
+      {/* Scenario 5: Panel Lawyer Accountability & Silence Alert */}
+      {caseData.lawyer_status === 'SILENT_UNRESPONSIVE' && (
+        <div className="lawyer-alert-banner" style={{
+          background: '#FEF2F2',
+          border: '2px solid #EF4444',
+          borderRadius: '8px',
+          padding: '14px 18px',
+          marginBottom: '16px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '12px'
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <span style={{ fontSize: '28px' }}>⚖️</span>
+            <div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                <h4 style={{ margin: 0, color: '#991B1B', fontSize: '15px', fontWeight: '800' }}>
+                  {t('lawyerAlert.silentWarning')}
+                </h4>
+                <span style={{
+                  background: '#991B1B',
+                  color: '#FFFFFF',
+                  fontSize: '11px',
+                  fontWeight: '800',
+                  padding: '2px 8px',
+                  borderRadius: '4px'
+                }}>
+                  {caseData.lawyer_accountability?.case_age_display || '~7 months active'}
+                </span>
+                <span style={{
+                  background: '#FEE2E2',
+                  color: '#991B1B',
+                  fontSize: '11px',
+                  fontWeight: '700',
+                  padding: '2px 8px',
+                  borderRadius: '4px',
+                  border: '1px solid #F87171'
+                }}>
+                  {caseData.lawyer_accountability?.days_since_last_activity ? `${caseData.lawyer_accountability.days_since_last_activity} ${t('accountability.daysInactive')}` : 'Overdue Inactivity'}
+                </span>
+              </div>
+              <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#7F1D1D' }}>
+                {caseData.lawyer_accountability?.escalation_reason || t('lawyerAlert.silentDesc')}
+              </p>
+            </div>
+          </div>
+          {caseData.citizen_inquiry_code && (
+            <div style={{
+              background: '#FFFFFF',
+              border: '1px solid #DC2626',
+              borderRadius: '6px',
+              padding: '8px 14px',
+              fontSize: '12px',
+              color: '#991B1B'
+            }}>
+              <span style={{ fontWeight: '600' }}>📱 {t('lawyerAlert.inquiryCode')}: </span>
+              <strong style={{ fontSize: '14px', letterSpacing: '1px', color: '#B91C1C', display: 'block' }}>
+                {caseData.citizen_inquiry_code}
+              </strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Flow 3: Sensitive Digital Harassment & Urgent Escalation Indicator */}
+      {(caseData.category === 'GENDER_VIOLENCE' || caseData.evidence?.some(e => e.sensitivity_level === 'STRICTLY_RESTRICTED_IMAGE_ABUSE')) && (
+        <div style={{
+          background: '#FEF2F2',
+          border: '2px solid #DC2626',
+          borderRadius: '8px',
+          padding: '14px 18px',
+          marginBottom: '16px'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <span style={{ fontSize: '28px' }}>🚨</span>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                  <h4 style={{ margin: 0, color: '#991B1B', fontSize: '15px', fontWeight: '800' }}>
+                    {t('nabilaAlert.title')}
+                  </h4>
+                  <span style={{
+                    background: '#991B1B',
+                    color: '#FFFFFF',
+                    fontSize: '11px',
+                    fontWeight: '800',
+                    padding: '2px 8px',
+                    borderRadius: '4px'
+                  }}>
+                    {t('nabilaAlert.urgentBadge')}
+                  </span>
+                  <span style={{
+                    background: '#FEE2E2',
+                    color: '#991B1B',
+                    fontSize: '11px',
+                    fontWeight: '700',
+                    padding: '2px 8px',
+                    borderRadius: '4px',
+                    border: '1px solid #F87171'
+                  }}>
+                    🔒 {t('nabilaAlert.sensitiveCaseBadge')}
+                  </span>
+                </div>
+                <p style={{ margin: '4px 0 0 0', fontSize: '13px', color: '#7F1D1D' }}>
+                  <strong>{t('nabilaAlert.reasonLabel')}:</strong> {t('nabilaAlert.reasonDesc')}
+                </p>
+              </div>
+            </div>
+
+            <div style={{
+              background: '#FFFFFF',
+              border: '1px solid #FCA5A5',
+              borderRadius: '6px',
+              padding: '6px 12px',
+              fontSize: '11px',
+              color: '#991B1B',
+              fontWeight: '600'
+            }}>
+              ⚖️ {t('nabilaAlert.humanConfirmationRequired')}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Tabs navigation for clean organization */}
       <div className="dossier-tabs">
         <button
           className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
           onClick={() => setActiveTab('overview')}
         >
-          👥 Participants & Incidents
+          👥 Overview & Safe Contact ({caseData.safe_contacts?.length ? '🛡️ Protected' : 'Standard'})
+        </button>
+        <button
+          className={`tab-btn ${activeTab === 'evidence' ? 'active' : ''}`}
+          onClick={() => setActiveTab('evidence')}
+          style={caseData.evidence?.some(e => e.sensitivity_level === 'STRICTLY_RESTRICTED_IMAGE_ABUSE') ? { color: '#DC2626', fontWeight: '700' } : {}}
+        >
+          🔒 {t('evidence.tabTitle')} ({caseData.evidence?.length || 0})
         </button>
         <button
           className={`tab-btn ${activeTab === 'provenance' ? 'active' : ''}`}
@@ -220,6 +344,13 @@ export default function CaseDetailPage({ caseId, onBack }) {
           ✅ Tasks & SLAs ({caseData.tasks?.length || 0})
         </button>
         <button
+          className={`tab-btn ${activeTab === 'accountability' ? 'active' : ''}`}
+          onClick={() => setActiveTab('accountability')}
+          style={(caseData.lawyer_status === 'SILENT_UNRESPONSIVE' || caseData.deadline_alert_level === 'CRITICAL_OVERDUE') ? { color: '#DC2626', fontWeight: '700' } : {}}
+        >
+          ⚖️ {t('accountability.tabTitle')} ({caseData.lawyer_accountability?.accountability_status || (caseData.assigned_lawyer_id ? 'ACTIVE' : 'NONE')})
+        </button>
+        <button
           className={`tab-btn ${activeTab === 'referrals' ? 'active' : ''}`}
           onClick={() => setActiveTab('referrals')}
         >
@@ -231,12 +362,33 @@ export default function CaseDetailPage({ caseId, onBack }) {
         >
           📜 Audit Trail ({caseData.audit_trail?.length || 0})
         </button>
+        <button
+          className={`tab-btn ${activeTab === 'goldenthread' ? 'active' : ''}`}
+          onClick={() => setActiveTab('goldenthread')}
+          style={{ borderColor: '#0D9488', color: '#0F766E', fontWeight: '700' }}
+        >
+          🔗 {language === 'bn' ? 'গোল্ডেন থ্রেড ম্যাপ' : 'Golden Thread Map'}
+        </button>
       </div>
 
       {/* Tab Panels */}
       <div className="tab-content">
         {activeTab === 'overview' && (
           <div className="stacked-cards">
+            {/* Flow 4: Lawyer Accountability Card if assigned */}
+            {caseData.assigned_lawyer_id && (
+              <LawyerAccountabilityCard
+                caseId={caseId}
+                caseData={caseData}
+                onRefresh={loadCase}
+              />
+            )}
+            {/* Flow 1: Safe Contact Protocol Card */}
+            <SafeContactCard
+              caseId={caseId}
+              safeContacts={caseData.safe_contacts || []}
+              onRefresh={loadCase}
+            />
             <PeopleCard
               caseId={caseId}
               people={caseData.people || []}
@@ -248,6 +400,14 @@ export default function CaseDetailPage({ caseId, onBack }) {
               onRefresh={loadCase}
             />
           </div>
+        )}
+
+        {activeTab === 'accountability' && (
+          <LawyerAccountabilityCard
+            caseId={caseId}
+            caseData={caseData}
+            onRefresh={loadCase}
+          />
         )}
 
         {activeTab === 'provenance' && (
@@ -266,6 +426,14 @@ export default function CaseDetailPage({ caseId, onBack }) {
           />
         )}
 
+        {activeTab === 'evidence' && (
+          <EvidenceVaultCard
+            caseId={caseId}
+            evidence={caseData.evidence || []}
+            onRefresh={loadCase}
+          />
+        )}
+
         {activeTab === 'referrals' && (
           <ReferralsCard
             caseId={caseId}
@@ -277,6 +445,13 @@ export default function CaseDetailPage({ caseId, onBack }) {
         {activeTab === 'audit' && (
           <AuditTrailView
             auditTrail={caseData.audit_trail || []}
+          />
+        )}
+
+        {activeTab === 'goldenthread' && (
+          <GoldenThreadCard
+            caseData={caseData}
+            onSelectTab={setActiveTab}
           />
         )}
       </div>

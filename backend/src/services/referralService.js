@@ -8,6 +8,7 @@ class ReferralService {
   createReferral({
     case_id,
     referral_type,
+    target_authority_type = 'DLAO',
     referring_office,
     receiving_office,
     referring_role,
@@ -27,11 +28,13 @@ class ReferralService {
       id,
       case_id,
       referral_type,
+      target_authority_type,
       referring_office,
       receiving_office,
       referring_role: referring_role || actor.role,
       receiving_role,
       status: 'PENDING',
+      acknowledgement_status: 'UNACKNOWLEDGED',
       reason,
       reason_bn,
       notes
@@ -64,6 +67,74 @@ class ReferralService {
     return referral;
   }
 
+  acknowledgeReferral(id, assignedOfficerId = null, notes = null, actor = { id: 'SYSTEM', role: 'B6_RECEIVING_DLAO' }) {
+    const previous = referralRepository.findById(id);
+    if (!previous) throw new Error(`Referral ${id} not found`);
+
+    const finalOfficerId = assignedOfficerId || actor.id;
+    const updated = referralRepository.acknowledge(id, finalOfficerId, notes);
+
+    auditService.recordAuditEvent({
+      case_id: previous.case_id,
+      action: AUDIT_ACTIONS.REFERRAL_ACKNOWLEDGED,
+      actor_id: actor.id || 'SYSTEM',
+      actor_role: actor.role || 'B6_RECEIVING_DLAO',
+      payload_before: {
+        acknowledgement_status: previous.acknowledgement_status,
+        status: previous.status,
+        assigned_officer_id: previous.assigned_officer_id
+      },
+      payload_after: {
+        acknowledgement_status: 'ACKNOWLEDGED',
+        status: updated.status,
+        assigned_officer_id: updated.assigned_officer_id,
+        notes: updated.notes
+      },
+      notes: `Referral ${id} acknowledged by ${actor.role} (${actor.id}); receiving owner set to ${updated.assigned_officer_id}`
+    });
+
+    return this._formatReferral(updated);
+  }
+
+  assignOwnership(id, assignedOfficerId, notes = null, actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }) {
+    const previous = referralRepository.findById(id);
+    if (!previous) throw new Error(`Referral ${id} not found`);
+    if (!assignedOfficerId) throw new Error('assigned_officer_id is required');
+
+    const updated = referralRepository.assignOwnership(id, assignedOfficerId, notes);
+
+    auditService.recordAuditEvent({
+      case_id: previous.case_id,
+      action: AUDIT_ACTIONS.REFERRAL_OWNERSHIP_ASSIGNED,
+      actor_id: actor.id || 'SYSTEM',
+      actor_role: actor.role || 'B1_DLAO_OFFICER',
+      payload_before: { assigned_officer_id: previous.assigned_officer_id },
+      payload_after: { assigned_officer_id: updated.assigned_officer_id },
+      notes: `Referral ${id} receiving ownership assigned to ${assignedOfficerId} by ${actor.role} (${actor.id})`
+    });
+
+    return this._formatReferral(updated);
+  }
+
+  updateReferralStatus(id, newStatus, receivingRole = null, notes = null, actor = { id: 'SYSTEM', role: 'B6_RECEIVING_DLAO' }) {
+    const previous = referralRepository.findById(id);
+    if (!previous) throw new Error(`Referral ${id} not found`);
+
+    const updated = referralRepository.updateStatus(id, newStatus, receivingRole, notes);
+
+    auditService.recordAuditEvent({
+      case_id: previous.case_id,
+      action: AUDIT_ACTIONS.REFERRAL_STATUS_CHANGED,
+      actor_id: actor.id || 'SYSTEM',
+      actor_role: actor.role || 'B6_RECEIVING_DLAO',
+      payload_before: { status: previous.status },
+      payload_after: { status: updated.status },
+      notes: `Referral ${id} status updated to ${newStatus} by ${actor.role} (${actor.id})`
+    });
+
+    return this._formatReferral(updated);
+  }
+
   acceptReferral(id, receivingRole = 'B6_RECEIVING_DLAO', actor = { id: 'SYSTEM', role: 'B6_RECEIVING_DLAO' }) {
     const previous = referralRepository.findById(id);
     if (!previous) throw new Error(`Referral ${id} not found`);
@@ -80,12 +151,24 @@ class ReferralService {
       notes: `Referral accepted by ${receivingRole}`
     });
 
-    return updated;
+    return this._formatReferral(updated);
   }
 
   getReferralsForCase(caseId) {
-    return referralRepository.listByCaseId(caseId);
+    const list = referralRepository.listByCaseId(caseId);
+    return list.map(r => this._formatReferral(r));
+  }
+
+  _formatReferral(ref) {
+    if (!ref) return null;
+    return {
+      ...ref,
+      simulation_notice: 'External agency integration simulated for prototype.',
+      owner_display: ref.assigned_officer_id || 'UNASSIGNED',
+      is_acknowledged: ref.acknowledgement_status === 'ACKNOWLEDGED'
+    };
   }
 }
 
 module.exports = new ReferralService();
+

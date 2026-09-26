@@ -12,6 +12,9 @@ class IncidentService {
     description,
     description_bn = null,
     severity = 'MEDIUM',
+    is_sensitive_evidence = false,
+    evidence_privacy_level = 'STANDARD',
+    redacted_summary = null,
     police_station_jurisdiction = null,
     gd_or_fir_number = null,
     actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }
@@ -32,6 +35,9 @@ class IncidentService {
       description,
       description_bn,
       severity,
+      is_sensitive_evidence,
+      evidence_privacy_level,
+      redacted_summary,
       police_station_jurisdiction,
       gd_or_fir_number,
       linked_by_user_id: actor.id || 'SYSTEM'
@@ -42,8 +48,14 @@ class IncidentService {
       action: AUDIT_ACTIONS.INCIDENT_LINKED,
       actor_id: actor.id || 'SYSTEM',
       actor_role: actor.role || 'B1_DLAO_OFFICER',
-      payload_after: incident,
-      notes: `Incident linked: ${incident_type} at ${location} (${severity})`
+      payload_after: {
+        id,
+        incident_type,
+        severity,
+        is_sensitive_evidence,
+        evidence_privacy_level
+      },
+      notes: `Incident linked: ${incident_type} at ${location} (${severity})${is_sensitive_evidence ? ' [SENSITIVE EVIDENCE MARKED]' : ''}`
     });
 
     return incident;

@@ -21,36 +21,40 @@
 
 ---
 
-## 2. Permission Registry
+## 2. Audited Permission Registry
 
-| Permission Key | Description |
-|---|---|
-| `application:create` | Submit a new intake application |
-| `application:read` | Read application details |
-| `application:update` | Update intake notes or eligibility assessment |
-| `case:create` | Convert application into formal legal aid case |
-| `case:read` | View case dossier, participants, tasks, and history |
-| `case:update_status` | Advance or revert case status across the 11 shared states |
-| `case:assign_lawyer` | Assign an accredited panel lawyer to a case |
-| `case:mediate` | Schedule and conduct ADR mediation proceedings |
-| `people:link` | Add participant (representative, respondent, witness) |
-| `people:read` | View participant profiles and contact details |
-| `task:create` | Create follow-up tasks and hearing SLA assignments |
-| `task:update` | Update task status (e.g. mark completed) |
-| `task:read` | View tasks |
-| `referral:create` | Issue inter-district or institutional referral |
-| `referral:accept` | Accept an inbound referral |
-| `referral:read` | View referrals |
-| `incident:link` | Link incident report or Thana GD/FIR |
-| `incident:read` | View incidents |
-| `provenance:record` | Log statement source, translation, or AI assistance |
-| `provenance:confirm` | Certify translation or AI output as verified human officer |
-| `provenance:read` | View provenance trail |
-| `audit:read` | Inspect immutable audit logs |
+| Permission Key | Description | Mutates Data | Requires Audit | Requires Provenance |
+|---|---|:---:|:---:|:---:|
+| `application:create` | Submit a new intake application | Yes | Yes (`APPLICATION_CREATED`) | Yes |
+| `application:read` | Read application details | No | No | No |
+| `application:update` | Update intake notes or eligibility assessment | Yes | Yes (`APPLICATION_UPDATED`) | Yes |
+| `case:create` | Convert application into formal legal aid case | Yes | Yes (`CASE_CREATED`) | Yes |
+| `case:read` | View case dossier, participants, tasks, and history | No | No | No |
+| `case:update_status` | Advance or revert case status across the 11 shared states | Yes | Yes (`STATUS_CHANGE`) | Optional |
+| `case:create_event` | Record a state-changing event or notice in case history | Yes | Yes (`ACTION_EVENT`) | Optional |
+| `case:assign_lawyer` | Assign an accredited panel lawyer to a case | Yes | Yes (`LAWYER_ASSIGNED`) | Optional |
+| `case:mediate` | Schedule and conduct ADR mediation proceedings | Yes | Yes (`MEDIATION_HEARING`) | Optional |
+| `safe_contact:configure` | Configure safe contact protocol & restrict compromised channels | Yes | Yes (`SAFE_CONTACT_CONFIGURED`) | No |
+| `safe_contact:read` | View unmasked confidential safe contact channel details | No | No (auto-masked if missing) | No |
+| `people:link` | Add participant (representative, respondent, witness) | Yes | Yes (`REPRESENTATIVE_LINKED`) | Optional |
+| `people:read` | View participant profiles and contact details | No | No | No |
+| `task:create` | Create follow-up tasks and hearing SLA assignments | Yes | Yes (`TASK_CREATED`) | No |
+| `task:update` | Update task status (e.g. mark completed) | Yes | Yes (`TASK_UPDATED`) | No |
+| `task:read` | View tasks | No | No | No |
+| `referral:create` | Issue inter-district or institutional referral | Yes | Yes (`REFERRAL_ISSUED`) | Optional |
+| `referral:acknowledge`| Acknowledge institutional referral ownership (e.g. PCSW) | Yes | Yes (`REFERRAL_ACKNOWLEDGED`)| No |
+| `referral:accept` | Accept an inbound transfer referral | Yes | Yes (`REFERRAL_ACCEPTED`) | Optional |
+| `referral:read` | View referrals | No | No | No |
+| `incident:link` | Link incident report, sensitive evidence, or Thana GD/FIR | Yes | Yes (`INCIDENT_LINKED`) | Optional |
+| `incident:read` | View incidents (sensitive evidence redacted if unauthorized) | No | No | No |
+| `provenance:record` | Log statement source, translation, or AI assistance | Yes | Yes (`PROVENANCE_RECORDED`)| Yes |
+| `provenance:confirm` | Certify translation or AI output as verified human officer | Yes | Yes (`PROVENANCE_CONFIRMED`) | Yes |
+| `provenance:read` | View provenance trail | No | No | No |
+| `audit:read` | Inspect immutable audit logs | No | No | No |
 
 ---
 
-## 3. Role-Permission Matrix
+## 3. Audited Role-Permission Matrix
 
 | Permission | B1 | B2 | B3 | B4 | B5 | B6 | B7 | C1 | C2 |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
@@ -60,14 +64,18 @@
 | `case:create` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | `case:read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `case:update_status` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `case:create_event` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | `case:assign_lawyer` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | `case:mediate` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| `safe_contact:configure`| ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
+| `safe_contact:read` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | `people:link` | ✅ | ✅ | ❌ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | `people:read` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `task:create` | ✅ | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | `task:update` | ✅ | ✅ | ❌ | ❌ | ✅ | ✅ | ✅ | ❌ | ❌ |
 | `task:read` | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | `referral:create` | ✅ | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ |
+| `referral:acknowledge`| ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `referral:accept` | ✅ | ❌ | ❌ | ❌ | ❌ | ✅ | ❌ | ❌ | ❌ |
 | `referral:read` | ✅ | ✅ | ❌ | ❌ | ❌ | ✅ | ✅ | ❌ | ❌ |
 | `incident:link` | ✅ | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ❌ | ❌ |
@@ -79,15 +87,26 @@
 
 ---
 
-## 4. Rejection Handling & Security Audit
+## 4. Development/Prototype Actor Simulation Architecture
+
+> [!IMPORTANT]
+> **DEVELOPMENT / PROTOTYPE ACTOR SIMULATION NOTICE**
+> The headers `x-user-role`, `x-user-id`, and `x-user-name` are strictly used for **prototype demonstration and test actor simulation**. They are **NOT** production authentication.
+> 
+> - **Actor Extraction Isolation:** Actor simulation parsing is isolated inside `backend/src/middleware/auth.js` (`extractActorSimulation()`). When production authentication (e.g. OAuth2, Gov OIDC, SMS OTP) is integrated, only this isolated adapter function will be replaced; the authorization engine remains untouched.
+> - **Backend Authority:** Frontend role-switcher UI does NOT determine permissions. If a client sends an unauthorized mutation (such as `POST /api/cases/:id/events` from a Helpline agent or Citizen), the backend immediately rejects the call with `403 Forbidden` and records an immutable `ACCESS_DENIED` audit entry.
+
+---
+
+## 5. Rejection Handling & Security Audit
 When a request fails permission verification:
 1. HTTP status `403 Forbidden` is returned with JSON:
    ```json
    {
      "success": false,
      "error": "Forbidden",
-     "message": "Role 'B3_HELPLINE_AGENT' lacks required permission 'case:update_status'",
-     "requiredPermission": "case:update_status",
+     "message": "Role 'B3_HELPLINE_AGENT' lacks required permission 'case:create_event'",
+     "requiredPermission": "case:create_event",
      "currentRole": "B3_HELPLINE_AGENT"
    }
    ```

@@ -307,8 +307,8 @@ describe('ADLASB Core API & Domain Model Tests', () => {
     assert.ok(c.audit_trail.length >= 1);
   });
 
-  it('13. Seed Data Verification: Verify the 5 mandatory citizen scenarios', async () => {
-    // 1. Moyuri Akter & Ripon
+  it('13. Seed Data Verification: Verify the corrected 5 mandatory citizen scenarios', async () => {
+    // 1. Moyuri Akter & Ripon (Safe Contact & Representative & Secondhand Reporting)
     const case1Res = await request(app)
       .get('/api/cases/CASE-20260901-0001')
       .set('x-user-role', 'B1_DLAO_OFFICER');
@@ -316,19 +316,46 @@ describe('ADLASB Core API & Domain Model Tests', () => {
     const people1 = case1Res.body.data.people;
     const moyuri = people1.find(p => p.person_id === 'PER-CITIZEN-MOYURI');
     const ripon = people1.find(p => p.person_id === 'PER-CITIZEN-RIPON');
-    assert.ok(moyuri && ripon, 'Moyuri and Ripon must both be linked to case');
+    assert.ok(moyuri && ripon, 'Moyuri and Ripon must both be linked to case without merging identities');
     assert.strictEqual(ripon.role_in_case, 'AUTHORIZED_REPRESENTATIVE');
     assert.strictEqual(ripon.relationship_to_applicant, 'BROTHER');
     assert.strictEqual(ripon.authorization_doc_ref, 'DLAO-REP-AUTH-2026-DH-091');
 
-    // 2. Nabila (RMG Garment Worker with multi-incidents)
+    // Verify safe contact details for Moyuri
+    assert.ok(case1Res.body.data.safe_contacts.length >= 1, 'Moyuri must have safe contact configuration');
+    const sc = case1Res.body.data.safe_contacts[0];
+    assert.strictEqual(sc.is_safe_contact_active, 1);
+    assert.strictEqual(sc.danger_level, 'HIGH');
+    assert.ok(sc.restriction_reason.includes('husband controls phone'));
+
+    // Verify secondhand reporting in provenance
+    const secondhandProv = case1Res.body.data.provenance.find(p => p.is_secondhand_report === 1);
+    assert.ok(secondhandProv, 'Case 1 must have secondhand reporting provenance');
+    assert.strictEqual(secondhandProv.reported_for_person_id, 'PER-CITIZEN-MOYURI');
+
+    // 2. Ripon (Accessible non-visual interaction metadata)
+    assert.strictEqual(ripon.socio_economic_profile.accessibility.interaction_mode, 'NON_VISUAL_VOICE_FIRST');
+    assert.strictEqual(ripon.socio_economic_profile.accessibility.no_captcha_required, true);
+    assert.strictEqual(ripon.socio_economic_profile.accessibility.no_visual_otp_required, true);
+
+    // 3. Nabila (Image-based cyber harassment, sensitive evidence, urgent PCSW referral)
     const case3Res = await request(app)
       .get('/api/cases/CASE-20260910-0003')
       .set('x-user-role', 'B1_DLAO_OFFICER');
     assert.strictEqual(case3Res.status, 200);
-    assert.ok(case3Res.body.data.incidents.length >= 2, 'Nabila must have multiple incidents linked');
+    assert.ok(case3Res.body.data.incidents.length >= 1);
+    const cyberInc = case3Res.body.data.incidents[0];
+    assert.strictEqual(cyberInc.is_sensitive_evidence, 1);
+    assert.strictEqual(cyberInc.evidence_privacy_level, 'STRICTLY_RESTRICTED_IMAGE_ABUSE');
+    
+    // Verify referral to Police Cyber Support for Women with ownership and acknowledgement
+    assert.ok(case3Res.body.data.referrals.length >= 1);
+    const cyberRef = case3Res.body.data.referrals[0];
+    assert.strictEqual(cyberRef.referral_type, 'CYBER_CRIME_DIVISION');
+    assert.strictEqual(cyberRef.acknowledgement_status, 'ACKNOWLEDGED');
+    assert.strictEqual(cyberRef.assigned_officer_id, 'OFFICER-CID-CYBER-88');
 
-    // 3. Nuching Marma (Indigenous CHT with translation provenance)
+    // 4. Nuching Marma (Indigenous CHT, 5-tier distinct provenance without collapsing)
     const case4Res = await request(app)
       .get('/api/cases/CASE-20260912-0004')
       .set('x-user-role', 'B1_DLAO_OFFICER');
@@ -336,15 +363,39 @@ describe('ADLASB Core API & Domain Model Tests', () => {
     const provs = case4Res.body.data.provenance;
     const spoken = provs.find(p => p.source_type === 'spoken_by_person');
     const translated = provs.find(p => p.source_type === 'translated');
+    const typed = provs.find(p => p.source_type === 'typed_by_staff');
+    const ai = provs.find(p => p.source_type === 'ai_assisted');
     const confirmed = provs.find(p => p.source_type === 'confirmed_by_human');
-    assert.ok(spoken && translated && confirmed, 'Nuching must carry spoken, translated, and human-confirmed provenance');
+    assert.ok(spoken, 'Must record spoken_by_person');
+    assert.ok(translated, 'Must record translated text');
+    assert.ok(typed, 'Must record typed_by_staff');
+    assert.ok(ai, 'Must record ai_assisted analysis');
+    assert.ok(confirmed, 'Must record human officer confirmation');
+    assert.notStrictEqual(spoken.raw_content, translated.processed_content, 'Spoken and translated must not collapse into one field');
 
-    // 4. Abdul Malek (Long-running land dispute with Panel Lawyer assignment and Referral)
+    // 5. Abdul Malek (7-month-old case, lawyer silent >90 days, non-smartphone inquiry code)
     const case5Res = await request(app)
-      .get('/api/cases/CASE-20210415-0005')
+      .get('/api/cases/CASE-20260220-0005')
       .set('x-user-role', 'B1_DLAO_OFFICER');
     assert.strictEqual(case5Res.status, 200);
     assert.strictEqual(case5Res.body.data.assigned_lawyer_id, 'PER-LAWYER-B5');
-    assert.ok(case5Res.body.data.referrals.length >= 1, 'Abdul Malek case must have referral recorded');
+    assert.strictEqual(case5Res.body.data.lawyer_status, 'SILENT_UNRESPONSIVE');
+    assert.strictEqual(case5Res.body.data.deadline_alert_level, 'CRITICAL_OVERDUE');
+    assert.strictEqual(case5Res.body.data.citizen_inquiry_code, '16699-MALEK-7492');
+  });
+
+  it('14. Safe Contact Privacy Masking: Unauthorized role sees redacted contact info', async () => {
+    // Helpline agent cannot view unrestricted safe contact details
+    const res = await request(app)
+      .get('/api/cases/CASE-20260901-0001/safe-contact')
+      .set('x-user-role', 'B3_HELPLINE_AGENT')
+      .set('x-user-id', 'PER-HELPLINE-B3');
+
+    assert.strictEqual(res.status, 200);
+    assert.ok(res.body.data.length >= 1);
+    const maskedContact = res.body.data[0];
+    assert.strictEqual(maskedContact.is_masked, true);
+    assert.strictEqual(maskedContact.safe_channel_details, '[REDACTED: RESTRICTED CONTACT PROTOCOL ACTIVE]');
+    assert.ok(maskedContact.confidentiality_notice.includes('ACCESS RESTRICTED'));
   });
 });

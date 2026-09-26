@@ -57,6 +57,33 @@ class PersonRepository {
     return this.findById(person.id);
   }
 
+  update(id, fields = {}) {
+    const db = getDb();
+    const allowed = ['phone', 'email', 'address', 'upazila', 'district', 'division', 'full_name', 'full_name_bn'];
+    const sets = [];
+    const params = [];
+
+    for (const [key, val] of Object.entries(fields)) {
+      if (allowed.includes(key)) {
+        sets.push(`${key} = ?`);
+        params.push(val);
+      }
+    }
+
+    if (fields.socio_economic_profile) {
+      sets.push('socio_economic_profile = ?');
+      params.push(JSON.stringify(fields.socio_economic_profile));
+    }
+
+    sets.push("updated_at = datetime('now')");
+    params.push(id);
+
+    const sql = `UPDATE people SET ${sets.join(', ')} WHERE id = ?`;
+    db.prepare(sql).run(...params);
+
+    return this.findById(id);
+  }
+
   list() {
     const db = getDb();
     const rows = db.prepare('SELECT * FROM people ORDER BY created_at DESC').all();

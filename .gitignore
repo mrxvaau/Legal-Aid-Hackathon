@@ -15,6 +15,7 @@ build/
 # Local databases (except test fixtures if any)
 backend/data/*.sqlite-shm
 backend/data/*.sqlite-wal
+backend/data/test*.sqlite
 
 # OS files
 .DS_Store

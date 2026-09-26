@@ -11,10 +11,15 @@ router.post(
   caseController.createCase.bind(caseController)
 );
 
+// Non-Smartphone Citizen Status Query (Flow 4) - Public/Citizen Accessible
 router.get(
-  '/:id',
-  requirePermission(PERMISSIONS.CASE_READ),
-  caseController.getCase.bind(caseController)
+  '/citizen-status',
+  caseController.getCitizenStatus.bind(caseController)
+);
+
+router.post(
+  '/citizen-status',
+  caseController.getCitizenStatus.bind(caseController)
 );
 
 router.get(
@@ -23,16 +28,22 @@ router.get(
   caseController.listCases.bind(caseController)
 );
 
+router.get(
+  '/:id',
+  requirePermission(PERMISSIONS.CASE_READ),
+  caseController.getCase.bind(caseController)
+);
+
 router.patch(
   '/:id/status',
   requirePermission(PERMISSIONS.CASE_UPDATE_STATUS),
   caseController.updateStatus.bind(caseController)
 );
 
-// Case Events (Audit / State)
+// Case Events (MUTATION: Guarded by CASE_CREATE_EVENT)
 router.post(
   '/:id/events',
-  requirePermission(PERMISSIONS.CASE_READ),
+  requirePermission(PERMISSIONS.CASE_CREATE_EVENT),
   caseController.createEvent.bind(caseController)
 );
 
@@ -53,6 +64,19 @@ router.get(
   '/:id/people',
   requirePermission(PERMISSIONS.PEOPLE_READ),
   caseController.getPeople.bind(caseController)
+);
+
+// Safe Contacts (Flow 1)
+router.post(
+  '/:id/safe-contact',
+  requirePermission(PERMISSIONS.SAFE_CONTACT_CONFIGURE),
+  caseController.configureSafeContact.bind(caseController)
+);
+
+router.get(
+  '/:id/safe-contact',
+  requirePermission(PERMISSIONS.CASE_READ),
+  caseController.getSafeContacts.bind(caseController)
 );
 
 // Case Tasks
@@ -82,9 +106,46 @@ router.get(
 );
 
 router.post(
+  '/:id/referrals/:referralId/acknowledge',
+  requirePermission(PERMISSIONS.REFERRAL_ACKNOWLEDGE),
+  caseController.acknowledgeReferral.bind(caseController)
+);
+
+router.post(
+  '/:id/referrals/:referralId/ownership',
+  requirePermission(PERMISSIONS.REFERRAL_ACKNOWLEDGE),
+  caseController.assignReferralOwnership.bind(caseController)
+);
+
+router.patch(
+  '/:id/referrals/:referralId/status',
+  requirePermission(PERMISSIONS.REFERRAL_ACKNOWLEDGE),
+  caseController.updateReferralStatus.bind(caseController)
+);
+
+router.post(
   '/:id/referrals/:referralId/accept',
   requirePermission(PERMISSIONS.REFERRAL_ACCEPT),
   caseController.acceptReferral.bind(caseController)
+);
+
+// Sensitive Evidence Vault (Flow 3)
+router.post(
+  '/:id/evidence',
+  requirePermission(PERMISSIONS.EVIDENCE_CREATE),
+  caseController.createEvidence.bind(caseController)
+);
+
+router.get(
+  '/:id/evidence',
+  requirePermission(PERMISSIONS.EVIDENCE_READ),
+  caseController.getEvidenceList.bind(caseController)
+);
+
+router.get(
+  '/:id/evidence/:evidenceId',
+  requirePermission(PERMISSIONS.EVIDENCE_READ),
+  caseController.getEvidence.bind(caseController)
 );
 
 // Case Incidents
@@ -119,11 +180,23 @@ router.post(
   caseController.confirmProvenance.bind(caseController)
 );
 
-// Lawyer Assignment
+// Lawyer Assignment & Accountability (Flow 4)
 router.post(
   '/:id/lawyer',
   requirePermission(PERMISSIONS.CASE_ASSIGN_LAWYER),
   caseController.assignLawyer.bind(caseController)
+);
+
+router.post(
+  '/:id/lawyer/activity',
+  requirePermission(PERMISSIONS.LAWYER_ACTIVITY_RECORD),
+  caseController.recordLawyerActivity.bind(caseController)
+);
+
+router.post(
+  '/:id/lawyer/escalate',
+  requirePermission(PERMISSIONS.LAWYER_ESCALATE),
+  caseController.escalateLawyer.bind(caseController)
 );
 
 module.exports = router;

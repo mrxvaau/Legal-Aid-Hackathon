@@ -5,9 +5,20 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ADLASB - Digital Legal Aid System | বাংলাদেশ ডিজিটাল লিগ্যাল এইড</title>
     <meta name="description" content="National Integrated Digital Legal Aid System for Bangladesh - ADLASB Grand Finale Prototype." />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#0F766E" />
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('[SW] Registered successfully:', reg.scope))
+            .catch(err => console.log('[SW] Registration failed:', err));
+        });
+      }
+    </script>
   </body>
 </html>

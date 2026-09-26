@@ -5,20 +5,24 @@ class ReferralRepository {
     const db = getDb();
     const stmt = db.prepare(`
       INSERT INTO referrals (
-        id, case_id, referral_type, referring_office, receiving_office,
-        referring_role, receiving_role, status, reason, reason_bn, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, case_id, referral_type, target_authority_type, referring_office, receiving_office,
+        referring_role, receiving_role, status, acknowledgement_status, assigned_officer_id,
+        reason, reason_bn, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       ref.id,
       ref.case_id,
       ref.referral_type,
+      ref.target_authority_type || 'DLAO',
       ref.referring_office,
       ref.receiving_office,
       ref.referring_role,
       ref.receiving_role || null,
       ref.status || 'PENDING',
+      ref.acknowledgement_status || 'UNACKNOWLEDGED',
+      ref.assigned_officer_id || null,
       ref.reason,
       ref.reason_bn || null,
       ref.notes || null
@@ -32,19 +36,46 @@ class ReferralRepository {
     return db.prepare('SELECT * FROM referrals WHERE id = ?').get(id);
   }
 
-  updateStatus(id, newStatus, receivingRole = null) {
+  acknowledge(id, assignedOfficerId, notes = null) {
     const db = getDb();
-    const isAccepted = newStatus === 'ACCEPTED';
-    const acceptedAt = isAccepted ? new Date().toISOString() : null;
+    db.prepare(`
+      UPDATE referrals
+      SET acknowledgement_status = 'ACKNOWLEDGED',
+          status = CASE WHEN status = 'PENDING' OR status = 'TRANSMITTED' THEN 'ACKNOWLEDGED' ELSE status END,
+          assigned_officer_id = COALESCE(?, assigned_officer_id),
+          notes = CASE WHEN ? IS NOT NULL THEN (COALESCE(notes, '') || ' | Acknowledgement Note: ' || ?) ELSE notes END,
+          acknowledged_at = datetime('now'),
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(assignedOfficerId || null, notes, notes, id);
 
+    return this.findById(id);
+  }
+
+  assignOwnership(id, assignedOfficerId, notes = null) {
+    const db = getDb();
+    db.prepare(`
+      UPDATE referrals
+      SET assigned_officer_id = ?,
+          notes = CASE WHEN ? IS NOT NULL THEN (COALESCE(notes, '') || ' | Ownership Reassigned: ' || ?) ELSE notes END,
+          updated_at = datetime('now')
+      WHERE id = ?
+    `).run(assignedOfficerId, notes, notes, id);
+
+    return this.findById(id);
+  }
+
+  updateStatus(id, newStatus, receivingRole = null, notes = null) {
+    const db = getDb();
     db.prepare(`
       UPDATE referrals
       SET status = ?,
           receiving_role = COALESCE(?, receiving_role),
+          notes = CASE WHEN ? IS NOT NULL THEN (COALESCE(notes, '') || ' | Status: ' || ?) ELSE notes END,
           accepted_at = CASE WHEN ? = 'ACCEPTED' THEN datetime('now') ELSE accepted_at END,
           updated_at = datetime('now')
       WHERE id = ?
-    `).run(newStatus, receivingRole, newStatus, id);
+    `).run(newStatus, receivingRole, notes, notes, newStatus, id);
 
     return this.findById(id);
   }

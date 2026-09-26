@@ -6,6 +6,8 @@ const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const applicationRoutes = require('./routes/applicationRoutes');
 const caseRoutes = require('./routes/caseRoutes');
 const metaRoutes = require('./routes/metaRoutes');
+const syncRoutes = require('./routes/syncRoutes');
+const caseController = require('./controllers/caseController');
 
 const app = express();
 
@@ -24,6 +26,10 @@ app.use(authMiddleware);
 // API Routes
 app.use('/api/applications', applicationRoutes);
 app.use('/api/cases', caseRoutes);
+app.get('/api/citizen/status', caseController.getCitizenStatus.bind(caseController));
+app.post('/api/citizen/status', caseController.getCitizenStatus.bind(caseController));
+app.use('/api/sync', syncRoutes);
+app.use('/api', syncRoutes); // mounts /api/ai-pre-assess
 app.use('/api', metaRoutes);
 
 // Fallbacks & Error Handlers

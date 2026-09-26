@@ -4,10 +4,19 @@ const { ROLES, CASE_STATES, PROVENANCE_SOURCES, AUDIT_ACTIONS } = require('../ut
 
 function seed(dbInstance = null) {
   const db = dbInstance || getDb();
+
+  // Ensure schema, tables, and columns exist first
   migrate(db);
+
+  // For maintenance re-seeding: temporarily drop immutability triggers to allow clean wipe
+  db.exec(`
+    DROP TRIGGER IF EXISTS prevent_audit_log_update;
+    DROP TRIGGER IF EXISTS prevent_audit_log_delete;
+  `);
 
   // Clear existing scenario data for clean idempotent seeding
   const clearTx = db.transaction(() => {
+    db.prepare('DELETE FROM safe_contacts').run();
     db.prepare('DELETE FROM incident_links').run();
     db.prepare('DELETE FROM referrals').run();
     db.prepare('DELETE FROM tasks').run();
@@ -20,6 +29,9 @@ function seed(dbInstance = null) {
     db.prepare('DELETE FROM user_roles').run();
   });
   clearTx();
+
+  // Re-run migration to re-apply triggers and ensure schema integrity
+  migrate(db);
 
   const seedTx = db.transaction(() => {
     // ------------------------------------------------------------------------
@@ -160,14 +172,14 @@ function seed(dbInstance = null) {
     // 2. SEED CITIZENS (The 5 Mandatory Citizen Scenarios)
     // ------------------------------------------------------------------------
 
-    // Scenario 1 & 2: Moyuri Akter (Applicant) & Ripon (Authorized Representative)
+    // Scenario 1: Moyuri Akter (Unsafe contact, husband controls phone/NID)
     insertPersonStmt.run(
       'PER-CITIZEN-MOYURI',
       'NID-199856100101',
       'Moyuri Akter',
       'ময়ূরী আক্তার',
       'FEMALE',
-      '01822000101',
+      '01822000101 (COMPROMISED - Husband Monitored)',
       'moyuri.akter@example.com',
       'House 14, Ward 4, Mirpur',
       'Mirpur',
@@ -176,10 +188,14 @@ function seed(dbInstance = null) {
       JSON.stringify({
         income_bracket: 'BELOW_15000',
         vulnerability: 'DOMESTIC_VIOLENCE_SURVIVOR',
+        phone_compromised: true,
+        nid_confiscated_by_husband: true,
+        safety_status: 'HIGH_RISK_PERPETRATOR_CONTROL',
         occupation: 'Homemaker'
       })
     );
 
+    // Scenario 2: Ripon (Brother, Authorized Representative, Blind user, non-visual interaction)
     insertPersonStmt.run(
       'PER-CITIZEN-RIPON',
       'NID-199656100102',
@@ -195,11 +211,18 @@ function seed(dbInstance = null) {
       JSON.stringify({
         relationship: 'BROTHER',
         is_representative: true,
-        occupation: 'Shop Assistant'
+        accessibility: {
+          visual_impairment: true,
+          interaction_mode: 'NON_VISUAL_VOICE_FIRST',
+          screen_reader: true,
+          no_captcha_required: true,
+          no_visual_otp_required: true
+        },
+        occupation: 'Community Organizer'
       })
     );
 
-    // Opposing party for Moyuri case
+    // Opposing party Faruk Hossain
     insertPersonStmt.run(
       'PER-OPP-FARUK',
       'NID-199256100103',
@@ -212,10 +235,10 @@ function seed(dbInstance = null) {
       'Mirpur',
       'Dhaka',
       'Dhaka',
-      JSON.stringify({ role: 'RESPONDENT_HUSBAND' })
+      JSON.stringify({ role: 'RESPONDENT_HUSBAND', perpetrator_control_flag: true })
     );
 
-    // Scenario 3: Nabila (RMG Garment Worker)
+    // Scenario 3: Nabila (Cyber harassment, fake/altered images, sensitive evidence)
     insertPersonStmt.run(
       'PER-CITIZEN-NABILA',
       'NID-200156100201',
@@ -223,26 +246,27 @@ function seed(dbInstance = null) {
       'নাবিলা',
       'FEMALE',
       '01933000201',
-      null,
-      'Boro Bari, Gazipur Sadar',
-      'Gazipur Sadar',
-      'Gazipur',
+      'nabila.student@example.com',
+      'Dhanmondi Road 8, Dhaka',
+      'Dhanmondi',
+      'Dhaka',
       'Dhaka',
       JSON.stringify({
-        income_bracket: 'BELOW_12000',
-        vulnerability: 'RMG_WORKER_WAGE_DEPRIVATION',
-        occupation: 'Sewing Operator'
+        income_bracket: 'STUDENT_DEPENDENT',
+        vulnerability: 'CYBER_IMAGE_BASED_HARASSMENT',
+        confidentiality_requested: true,
+        sensitive_evidence_on_file: true
       })
     );
 
-    // Scenario 4: Nuching Marma (Indigenous Citizen - CHT)
+    // Scenario 4: Nuching Marma (Indigenous CHT, Marma speaker, low literacy, UDC-assisted)
     insertPersonStmt.run(
       'PER-CITIZEN-NUCHING',
       'NID-199556100301',
       'Nuching Marma',
       'নুচিং মারমা',
       'FEMALE',
-      '01555000301',
+      '01555000301 (Unreliable Cellular Coverage)',
       null,
       'Dighinala Para, Baghaichhari',
       'Baghaichhari',
@@ -252,18 +276,20 @@ function seed(dbInstance = null) {
         income_bracket: 'EXTREME_POVERTY',
         vulnerability: 'INDIGENOUS_COMMUNITY_CHT',
         primary_language: 'Marma',
-        occupation: 'Farmer'
+        literacy_level: 'LOW_ORAL_ONLY',
+        connectivity_status: 'UNRELIABLE_OFFLINE_SYNC',
+        occupation: 'Jhum Farmer'
       })
     );
 
-    // Scenario 5: Abdul Malek (Elderly Land Disputant - 5+ yr long-running case)
+    // Scenario 5: Abdul Malek (Elderly farmer, 7-month-old case, lawyer silent, no smartphone)
     insertPersonStmt.run(
       'PER-CITIZEN-MALEK',
       'NID-195256100401',
       'Abdul Malek',
       'আব্দুল মালেক',
       'MALE',
-      '01744000401',
+      '01744000401 (Unstable / Inactive Contact)',
       null,
       'Gram: Radhanagar, Beanibazar',
       'Beanibazar',
@@ -273,12 +299,15 @@ function seed(dbInstance = null) {
         age: 74,
         income_bracket: 'BELOW_10000',
         vulnerability: 'ELDERLY_MARGINAL_FARMER',
-        occupation: 'Retired / Smallholder Farmer'
+        has_smartphone: false,
+        inquiry_mode: 'FEATURE_PHONE_USSD_OR_UDC_INQUIRY',
+        contact_status: 'OUTDATED_PHONE_RELOCATION',
+        occupation: 'Retired / Marginal Farmer'
       })
     );
 
     // ------------------------------------------------------------------------
-    // 3. APPLICATIONS, CASES, CASE_PEOPLE, TASKS, REFERRALS, INCIDENTS, PROVENANCE, AUDIT
+    // 3. SEED CASES & RELATIONSHIPS
     // ------------------------------------------------------------------------
     const insertAppStmt = db.prepare(`
       INSERT INTO applications (
@@ -292,8 +321,10 @@ function seed(dbInstance = null) {
       INSERT INTO cases (
         id, application_id, case_number, title, title_bn, category,
         status, priority, intake_office, court_name,
-        assigned_officer_id, assigned_lawyer_id, details_json
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        assigned_officer_id, assigned_lawyer_id,
+        filing_date, lawyer_last_active_at, lawyer_status,
+        deadline_alert_level, citizen_inquiry_code, details_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertCasePersonStmt = db.prepare(`
@@ -301,6 +332,14 @@ function seed(dbInstance = null) {
         id, case_id, person_id, role_in_case, relationship_to_applicant,
         authorization_doc_ref, is_primary_contact, notes
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const insertSafeContactStmt = db.prepare(`
+      INSERT INTO safe_contacts (
+        id, case_id, person_id, is_safe_contact_active, preferred_contact_method,
+        unsafe_channels, safe_channel_details, restriction_reason, danger_level,
+        confidentiality_notice, configured_by_id, configured_by_role
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertTaskStmt = db.prepare(`
@@ -312,25 +351,28 @@ function seed(dbInstance = null) {
 
     const insertReferralStmt = db.prepare(`
       INSERT INTO referrals (
-        id, case_id, referral_type, referring_office, receiving_office,
-        referring_role, receiving_role, status, reason, reason_bn, notes
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        id, case_id, referral_type, target_authority_type, referring_office, receiving_office,
+        referring_role, receiving_role, status, acknowledgement_status, assigned_officer_id,
+        acknowledged_at, reason, reason_bn, notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertIncidentStmt = db.prepare(`
       INSERT INTO incident_links (
         id, case_id, incident_type, incident_date, location,
-        description, description_bn, severity, police_station_jurisdiction,
+        description, description_bn, severity, is_sensitive_evidence,
+        evidence_privacy_level, redacted_summary, police_station_jurisdiction,
         gd_or_fir_number, linked_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertProvStmt = db.prepare(`
       INSERT INTO provenance_log (
         id, case_id, application_id, entity_type, entity_id, field_name,
         source_type, source_language, target_language, author_id, author_role,
+        is_secondhand_report, reported_for_person_id,
         source_details, raw_content, processed_content, confirmed_by, confirmed_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertAuditStmt = db.prepare(`
@@ -340,8 +382,20 @@ function seed(dbInstance = null) {
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
+    const insertEvidenceStmt = db.prepare(`
+      INSERT INTO evidence_vault (
+        id, case_id, incident_id, evidence_type, title, title_bn,
+        original_filename, mime_type, file_size_bytes, hash_checksum,
+        storage_ref, sensitivity_level, access_restrictions,
+        evidence_status, submitted_by_id, submitted_by_role,
+        chain_of_custody_notes
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
     // ========================================================================
     // SCENARIO 1 & 2: MOYURI AKTER & RIPON
+    // Safe contact active, husband controls phone/NID, brother Ripon (blind, voice-first)
+    // Secondhand reporting provenance
     // ========================================================================
     const app1Id = 'APP-20260901-0001';
     const case1Id = 'CASE-20260901-0001';
@@ -354,11 +408,11 @@ function seed(dbInstance = null) {
       'DLAO_WALKIN',
       'DLAO Dhaka',
       'CONVERTED_TO_CASE',
-      'Maintenance and domestic protection application submitted via authorized representative Ripon',
-      'অনুমোদিত প্রতিনিধি রিপনের মাধ্যমে খোরপোশ ও পারিবারিক সুরক্ষা আবেদন জমা দেওয়া হয়েছে',
+      'Emergency domestic protection and maintenance filed via authorized representative Ripon. Safe contact mode required due to husband controlling primary phone and NID.',
+      'অনুমোদিত প্রতিনিধি রিপনের মাধ্যমে জরুরি পারিবারিক সুরক্ষা ও খোরপোশ আবেদন। স্বামী কর্তৃক ফোন ও এনআইডি নিয়ন্ত্রিত হওয়ায় নিরাপদ যোগাযোগ মোড বাধ্যতামূলক।',
       JSON.stringify({
-        means_test_passed: true,
-        urgency: 'HIGH',
+        safe_contact_mode_requested: true,
+        perpetrator_controls_phone: true,
         representative_authorization_form: 'DLAO-REP-AUTH-2026-DH-091'
       }),
       ROLES.B1_DLAO_OFFICER,
@@ -369,16 +423,21 @@ function seed(dbInstance = null) {
       case1Id,
       app1Id,
       'DLAO-DHK-2026-0042',
-      'Moyuri Akter vs Faruk Hossain - Maintenance & Protection',
-      'ময়ূরী আক্তার বনাম ফারুক হোসেন - খোরপোশ ও পারিবারিক সুরক্ষা',
+      'Moyuri Akter vs Faruk Hossain - Safe Contact & Protection Mode',
+      'ময়ূরী আক্তার বনাম ফারুক হোসেন - নিরাপদ যোগাযোগ ও সুরক্ষা আবেদন',
       'FAMILY_DISPUTE',
       CASE_STATES.MEDIATION,
-      'HIGH',
+      'URGENT',
       'DLAO Dhaka',
       'Family Court Dhaka',
       'PER-OFFICER-B1',
       'PER-LAWYER-B5',
-      JSON.stringify({ stage: 'ADR_MEDIATION_SCHEDULED' })
+      '2026-09-01T10:00:00Z',
+      '2026-09-20T11:00:00Z',
+      'ACTIVE',
+      'NORMAL',
+      '16699-MOYURI-1042',
+      JSON.stringify({ safe_contact_active: true, blind_representative_voice_intake: true })
     );
 
     // Link Moyuri as Applicant
@@ -390,10 +449,10 @@ function seed(dbInstance = null) {
       'SELF',
       null,
       0,
-      'Applicant unable to travel easily due to security concerns'
+      'Applicant in high-risk domestic control; phone/NID confiscated by husband'
     );
 
-    // Link Ripon as Authorized Representative (EXPLICIT DISTINCTION - NOT MERGED)
+    // Link Ripon as Authorized Representative (Blind user, voice-first interaction)
     insertCasePersonStmt.run(
       'CP-002',
       case1Id,
@@ -402,10 +461,10 @@ function seed(dbInstance = null) {
       'BROTHER',
       'DLAO-REP-AUTH-2026-DH-091',
       1,
-      'Brother of applicant, holding formal representation authorization form'
+      'Brother & authorized representative; blind user (non-visual / voice-first interaction, zero visual CAPTCHA dependency)'
     );
 
-    // Link Respondent Faruk
+    // Link Opposing Party
     insertCasePersonStmt.run(
       'CP-003',
       case1Id,
@@ -414,98 +473,81 @@ function seed(dbInstance = null) {
       'SPOUSE',
       null,
       0,
-      'Summons issued for mediation appearance'
+      'Respondent husband; contact strictly restricted'
     );
 
-    // Tasks for Moyuri & Ripon case
-    insertTaskStmt.run(
-      'TSK-001',
+    // Configure Safe Contact for Moyuri
+    insertSafeContactStmt.run(
+      'SC-001',
       case1Id,
-      'Mediation Session Notice Issuance',
-      'সালিশি বৈঠকের নোটিশ জারি',
-      'Send formal summons to Faruk Hossain for first ADR mediation hearing on October 5, 2026',
-      ROLES.B2_LEGAL_AID_OFFICER,
-      'PER-MEDIATOR-B2',
-      '2026-10-02',
+      'PER-CITIZEN-MOYURI',
+      1,
+      'IN_PERSON_REPRESENTATIVE',
+      JSON.stringify(['PRIMARY_PHONE', 'DIRECT_SMS', 'UNSCHEDULED_HOME_VISIT']),
+      'Contact ONLY through brother Ripon at 01822000102. NEVER send SMS or place calls to applicant 01822000101 number as husband intercepts all incoming communications.',
+      'Perpetrator husband controls phone, monitors messages, and confiscated NID card.',
       'HIGH',
-      'COMPLETED'
+      'RESTRICTED: Safe Contact Protection Protocol Active. Do not expose safe channel to unauthorized parties.',
+      'PER-OFFICER-B1',
+      ROLES.B1_DLAO_OFFICER
     );
 
-    insertTaskStmt.run(
-      'TSK-002',
-      case1Id,
-      'Conduct Preliminary Mediation Session',
-      'প্রাথমিক সালিশি অধিবেশন পরিচালনা',
-      'Convene joint session with Moyuri, authorized representative Ripon, and Faruk',
-      ROLES.B2_LEGAL_AID_OFFICER,
-      'PER-MEDIATOR-B2',
-      '2026-10-05',
-      'HIGH',
-      'PENDING'
-    );
-
-    // Incident for Moyuri case
-    insertIncidentStmt.run(
-      'INC-001',
-      case1Id,
-      'DOMESTIC_VIOLENCE',
-      '2026-08-28',
-      'Mirpur Section 2, Dhaka',
-      'Physical assault and eviction threat following dowry demand',
-      'যৌতুকের দাবিতে শারীরিক নির্যাতন ও বাড়ি থেকে বের করে দেওয়ার হুমকি',
-      'HIGH',
-      'Mirpur Model Thana',
-      'GD-884/2026',
-      'PER-OFFICER-B1'
-    );
-
-    // Provenance for Moyuri: Statement submitted by authorized representative Ripon
+    // Secondhand Reporting Provenance: Ripon reporting on behalf of Moyuri
     insertProvStmt.run(
       'PRV-001',
       case1Id,
       app1Id,
       'application',
       app1Id,
-      'applicant_statement',
-      PROVENANCE_SOURCES.TYPED_BY_STAFF,
+      'intake_grievance_narrative',
+      PROVENANCE_SOURCES.SPOKEN_BY_PERSON,
       'bn',
       'bn',
-      'PER-OFFICER-B1',
-      ROLES.B1_DLAO_OFFICER,
-      JSON.stringify({ medium: 'IN_PERSON_REPRESENTATIVE_INTERVIEW', representative: 'Ripon' }),
-      'আবেদনকারী শারীরিকভাবে অসুস্থ থাকায় তার ভাই রিপন প্রতিনিধিত্ব করছেন।',
-      'Statement recorded from authorized representative Ripon on behalf of Moyuri Akter.',
+      'PER-CITIZEN-RIPON',
+      ROLES.AUTHORIZED_REPRESENTATIVE,
+      1, // is_secondhand_report = true
+      'PER-CITIZEN-MOYURI', // reported for Moyuri
+      JSON.stringify({
+        intake_mode: 'NON_VISUAL_VOICE_FIRST',
+        reporter: 'Ripon (Brother)',
+        affected_person: 'Moyuri Akter',
+        authorization_verified: true
+      }),
+      'আমার বোন ময়ূরীকে তার স্বামী ফারুক শারীরিক নির্যাতন করছে এবং ফোন ও এনআইডি কেড়ে নিয়েছে। বোন সরাসরি আসতে ভয় পাচ্ছে বিধায় আমি অনুমোদিত প্রতিনিধি হিসেবে অভিযোগ দায়ের করছি।',
+      'Secondhand oral report received from authorized representative Ripon on behalf of applicant Moyuri Akter via accessible voice intake.',
       'PER-OFFICER-B1',
       '2026-09-01T10:30:00Z'
     );
 
-    // Audit entries
+    // Tasks for Moyuri case
+    insertTaskStmt.run(
+      'TSK-001',
+      case1Id,
+      'Serve Safe Mediation Summons to Respondent',
+      'বিপক্ষ স্বামীকে সতর্কতামূলক সালিশি নোটিশ প্রদান',
+      'Serve confidential summons to Faruk Hossain without disclosing applicant temporary shelter address',
+      ROLES.B2_LEGAL_AID_OFFICER,
+      'PER-MEDIATOR-B2',
+      '2026-10-02',
+      'URGENT',
+      'PENDING'
+    );
+
+    // Audit logs for Moyuri & Ripon
     insertAuditStmt.run(
       'AUD-001',
       case1Id,
       app1Id,
-      AUDIT_ACTIONS.APPLICATION_CREATED,
+      AUDIT_ACTIONS.SAFE_CONTACT_CONFIGURED,
       'PER-OFFICER-B1',
       ROLES.B1_DLAO_OFFICER,
       null,
-      JSON.stringify({ status: 'SUBMITTED', applicant: 'Moyuri Akter', rep: 'Ripon' }),
-      'Application intake recorded by DLAO Officer'
+      JSON.stringify({ preferred_method: 'IN_PERSON_REPRESENTATIVE', safe_channel: 'Ripon (01822000102)' }),
+      'Configured safe-contact mode due to perpetrator phone interception'
     );
 
     insertAuditStmt.run(
       'AUD-002',
-      case1Id,
-      app1Id,
-      AUDIT_ACTIONS.CASE_CREATED,
-      'PER-OFFICER-B1',
-      ROLES.B1_DLAO_OFFICER,
-      null,
-      JSON.stringify({ case_number: 'DLAO-DHK-2026-0042', status: 'NEW' }),
-      'Converted application into formal legal aid case'
-    );
-
-    insertAuditStmt.run(
-      'AUD-003',
       case1Id,
       app1Id,
       AUDIT_ACTIONS.REPRESENTATIVE_LINKED,
@@ -513,11 +555,13 @@ function seed(dbInstance = null) {
       ROLES.B1_DLAO_OFFICER,
       null,
       JSON.stringify({ representative: 'Ripon', relation: 'BROTHER', auth_doc: 'DLAO-REP-AUTH-2026-DH-091' }),
-      'Verified and registered brother Ripon as authorized representative'
+      'Registered brother Ripon as authorized representative under accessible non-visual intake'
     );
 
     // ========================================================================
-    // SCENARIO 3: NABILA (Garment Worker, Helpline 16699, Multi-Incidents)
+    // SCENARIO 3: NABILA (CORRECTED)
+    // Cyber harassment, fake/altered images, sensitive evidence, urgent escalation,
+    // referral to Police Cyber Support for Women with acknowledgement tracking
     // ========================================================================
     const app3Id = 'APP-20260910-0003';
     const case3Id = 'CASE-20260910-0003';
@@ -526,16 +570,17 @@ function seed(dbInstance = null) {
       app3Id,
       'PER-CITIZEN-NABILA',
       null,
-      'LABOUR_DISPUTE',
+      'GENDER_VIOLENCE',
       'HELPLINE_16699',
       'National Helpline 16699 Central',
       'CONVERTED_TO_CASE',
-      'Withholding of 4 months earned wages, illegal termination, and supervisor harassment at export garment factory',
-      '৪ মাসের বকেয়া বেতন পরিশোধ না করে বেআইনি বরখাস্ত এবং সুপারভাইজার কর্তৃক হয়রানি',
+      'Extortion and online defamation through non-consensual distribution of altered/morphed intimate images via social messaging groups. Urgent takedown and cyber crime protection sought.',
+      'অনুমতি ব্যতিরেকে বিকৃত/ভুয়া আপত্তিকর ছবি তৈরি করে সামাজিক যোগাযোগ মাধ্যমে ছড়িয়ে দেওয়ার হুমকি ও ব্ল্যাকমেইল। জরুরি ডিজিটাল সুরক্ষা ও আইনগত পদক্ষেপের আবেদন।',
       JSON.stringify({
-        factory_name: 'Apex Horizon Apparels Ltd.',
-        total_arrears_bdt: 48000,
-        intake_call_id: 'CALL-16699-2026-9982'
+        is_cyber_crime: true,
+        sensitive_evidence: true,
+        escalation_target: 'POLICE_CYBER_SUPPORT_FOR_WOMEN',
+        intake_call_id: 'CALL-16699-CYBER-7781'
       }),
       ROLES.B3_HELPLINE_AGENT,
       'PER-HELPLINE-B3'
@@ -544,17 +589,25 @@ function seed(dbInstance = null) {
     insertCaseStmt.run(
       case3Id,
       app3Id,
-      'DLAO-GZP-2026-0189',
-      'Nabila vs Apex Horizon Apparels - Wage Recovery & Labor Rights',
-      'নাবিলা বনাম এপেক্স হরাইজন অ্যাপারেলস - বকেয়া মজুরি আদায়',
-      'LABOUR_DISPUTE',
-      CASE_STATES.IN_PROGRESS,
-      'HIGH',
+      'DLAO-DHK-2026-0914',
+      'Nabila - Cyber Extortion & Image-Based Abuse Protection',
+      'নাবিলা - সাইবার ব্ল্যাকমেইল ও বিকৃত ছবি অপব্যবহার রোধ মামলা',
+      'GENDER_VIOLENCE',
+      CASE_STATES.REFERRED,
+      'URGENT',
       'DLAO Dhaka',
-      'Labour Court 2 Dhaka',
+      'Cyber Tribunal Dhaka',
       'PER-OFFICER-B1',
       'PER-LAWYER-B5',
-      JSON.stringify({ legal_act: 'Bangladesh Labour Act 2006 (Section 33)' })
+      '2026-09-10T14:00:00Z',
+      '2026-09-12T15:00:00Z',
+      'ACTIVE',
+      'NORMAL',
+      '16699-NABILA-9914',
+      JSON.stringify({
+        sensitive_evidence_restricted: true,
+        cyber_tribunal_jurisdiction: true
+      })
     );
 
     insertCasePersonStmt.run(
@@ -565,85 +618,153 @@ function seed(dbInstance = null) {
       'SELF',
       null,
       1,
-      'Primary applicant and affected garment operator'
+      'Survivor of image-based cyber blackmail; high privacy protection mandated'
     );
 
-    insertCasePersonStmt.run(
-      'CP-005',
-      case3Id,
-      'PER-LAWYER-B5',
-      'PANEL_LAWYER',
-      'LEGAL_COUNSEL',
-      null,
-      0,
-      'Assigned panel lawyer representing Nabila in Labour Court'
-    );
-
-    // Multi-incidents for Nabila
+    // Sensitive Evidence Incident for Nabila
     insertIncidentStmt.run(
       'INC-002',
       case3Id,
-      'WAGE_THEFT',
-      '2026-08-31',
-      'Apex Horizon Factory, Gazipur',
-      'Sudden verbal termination without notice pay or clearance of 4 months salary arrears',
-      'নোটিশ প্রদান ছাড়াই হঠাৎ মৌখিক বরখাস্ত এবং ৪ মাসের বকেয়া বেতন আটকে রাখা',
-      'HIGH',
-      'Gazipur Sadar Thana',
-      null,
+      'CYBER_HARASSMENT_IMAGE_ABUSE',
+      '2026-09-09',
+      'Digital / Telegram Group & Facebook Messenger',
+      'Perpetrator created morphed and altered non-consensual explicit images from victim public profile, demanding 50,000 BDT or threatened transmission to university contacts.',
+      'আবেদনকারীর ফেসবুক ছবি বিকৃত করে আপত্তিকর ছবি তৈরি এবং ৫০ হাজার টাকা না দিলে বন্ধুদের মেসেঞ্জারে ছড়ানোর হুমকি।',
+      'CRITICAL',
+      1, // is_sensitive_evidence = true
+      'STRICTLY_RESTRICTED_IMAGE_ABUSE',
+      '[RESTRICTED EVIDENCE]: 6 screenshots of blackmail messages and hash of 2 altered images stored in secure evidentiary vault.',
+      'Dhanmondi Thana',
+      'GD-1102/2026',
       'PER-HELPLINE-B3'
     );
 
-    insertIncidentStmt.run(
-      'INC-003',
+    // Referral with Ownership & Acknowledgement Tracking for Nabila
+    insertReferralStmt.run(
+      'REF-002',
       case3Id,
-      'HARASSMENT',
-      '2026-09-02',
-      'Gazipur Chowrasta',
-      'Threatening telephone calls from factory security contractor demanding surrender of timecard',
-      'টাইমকার্ড জমা দেওয়ার জন্য কারখানা নিরাপত্তা কন্ট্রাক্টরের পক্ষ থেকে ফোনে হুমকি',
-      'MEDIUM',
-      'Gazipur Sadar Thana',
-      'GD-442/2026',
-      'PER-HELPLINE-B3'
+      'CYBER_CRIME_DIVISION',
+      'CYBER_CRIME_POLICE',
+      'National Helpline 16699 Central',
+      'Police Cyber Support for Women (PCSW) - CID HQ',
+      ROLES.B3_HELPLINE_AGENT,
+      ROLES.B6_RECEIVING_DLAO,
+      'TRANSMITTED',
+      'ACKNOWLEDGED', // Acknowledgement status tracked
+      'OFFICER-CID-CYBER-88', // Ownership tracked
+      '2026-09-11T09:30:00Z',
+      'Emergency content takedown and preservation of digital server logs under Cyber Security Act.',
+      'সাইবার নিরাপত্তা আইন অনুযায়ী জরুরি কনটেন্ট অপসারণ ও সার্ভার লগ সংরক্ষণের অনুরোধ।',
+      'CID Cyber Unit acknowledged receipt; formal BTRC URL blocking notice served.'
     );
 
-    // Provenance for Nabila: Spoken telephonically via 16699 Helpline
-    insertProvStmt.run(
-      'PRV-002',
+    // Sensitive Evidence Vault items for Nabila
+    insertEvidenceStmt.run(
+      'EV-20260910-001',
       case3Id,
-      app3Id,
-      'application',
-      app3Id,
-      'call_narrative',
-      PROVENANCE_SOURCES.SPOKEN_BY_PERSON,
-      'bn',
-      'bn',
+      'INC-002',
+      'ALTERED_IMAGE',
+      'Morphed & Altered Non-Consensual Image Sample',
+      'বিকৃত ও অশালীনভাবে সম্পাদিত ছবি নমুনা',
+      'victim_altered_photo_telegram_msg_01.jpg',
+      'image/jpeg',
+      2458291,
+      'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
+      'vault://secure-enclave/cases/CASE-20260910-0003/evidence/ev-001.dat (Simulated Secure Storage)',
+      'STRICTLY_RESTRICTED_IMAGE_ABUSE',
+      JSON.stringify(['RESTRICT_DLAO_ONLY', 'STRICT_AUDIT_LOGGED', 'NO_PUBLIC_ACCESS']),
+      'REGISTERED',
+      'PER-CITIZEN-NABILA',
+      ROLES.CITIZEN_APPLICANT,
+      'Digital cryptographic hash generated upon 16699 helpline intake. Binary isolated in secure evidentiary vault. Access permanently audited.'
+    );
+
+    insertEvidenceStmt.run(
+      'EV-20260910-002',
+      case3Id,
+      'INC-002',
+      'BLACKMAIL_MESSAGE_LOG',
+      'Telegram & Messenger Extortion Chat Logs (50,000 BDT Demand)',
+      'টেলিগ্রাম ও মেসেঞ্জার চাঁদা দাবির চ্যাট লগ (৫০,০০০ টাকা চাঁদা দাবি)',
+      'extortion_threat_chat_export_20260909.pdf',
+      'application/pdf',
+      1184920,
+      'a591a6d40bf420404a011733cfb7b190d62c65bf0bcda32b57b277d9ad9f146e',
+      'vault://secure-enclave/cases/CASE-20260910-0003/evidence/ev-002.dat (Simulated Secure Storage)',
+      'CONFIDENTIAL',
+      JSON.stringify(['OFFICER_REVIEW_ONLY', 'CHAIN_OF_CUSTODY_MANDATORY']),
+      'FORWARDED_TO_POLICE',
       'PER-HELPLINE-B3',
       ROLES.B3_HELPLINE_AGENT,
-      JSON.stringify({ channel: 'TELEPHONY_16699', audio_recording_id: 'REC-16699-9982' }),
-      'নাগরিক সরাসরি ১৬৬৯৯ নম্বরে ফোন করে তার বকেয়া বেতন ও হুমকির বিষয়ে বিস্তারিত বর্ণনা দিয়েছেন।',
-      'Oral grievance recorded live by helpline agent Tariqul Islam.',
-      'PER-HELPLINE-B3',
-      '2026-09-10T14:15:00Z'
+      'Forwarded as evidentiary bundle to Police Cyber Support for Women (PCSW), CID HQ under tracking REF-002.'
     );
 
-    // Task for Nabila case
+    // Audit logs for Nabila's sensitive evidence & referral
+    insertAuditStmt.run(
+      'AUD-NABILA-001',
+      case3Id,
+      app3Id,
+      AUDIT_ACTIONS.SENSITIVE_EVIDENCE_REGISTERED,
+      'PER-HELPLINE-B3',
+      ROLES.B3_HELPLINE_AGENT,
+      null,
+      JSON.stringify({
+        evidence_id: 'EV-20260910-001',
+        sensitivity_level: 'STRICTLY_RESTRICTED_IMAGE_ABUSE',
+        hash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+      }),
+      'Registered strictly restricted non-consensual altered image evidence in secure evidentiary vault'
+    );
+
+    insertAuditStmt.run(
+      'AUD-NABILA-002',
+      case3Id,
+      app3Id,
+      AUDIT_ACTIONS.REFERRAL_CREATED,
+      'PER-HELPLINE-B3',
+      ROLES.B3_HELPLINE_AGENT,
+      null,
+      JSON.stringify({
+        referral_id: 'REF-002',
+        target: 'Police Cyber Support for Women (PCSW) - CID HQ',
+        urgency: 'HIGH'
+      }),
+      'Urgent referral dispatched to Police Cyber Support for Women (PCSW), CID HQ for content takedown'
+    );
+
+    insertAuditStmt.run(
+      'AUD-NABILA-003',
+      case3Id,
+      app3Id,
+      AUDIT_ACTIONS.REFERRAL_ACKNOWLEDGED,
+      'OFFICER-CID-CYBER-88',
+      ROLES.B6_RECEIVING_DLAO,
+      JSON.stringify({ acknowledgement_status: 'UNACKNOWLEDGED' }),
+      JSON.stringify({
+        acknowledgement_status: 'ACKNOWLEDGED',
+        assigned_officer_id: 'OFFICER-CID-CYBER-88'
+      }),
+      'CID Cyber Unit acknowledged receipt; receiving ownership assigned to OFFICER-CID-CYBER-88'
+    );
+
+    // Task for Nabila Case
     insertTaskStmt.run(
       'TSK-003',
       case3Id,
-      'Draft Section 33 Grievance Petition',
-      'শ্রম আইনের ৩৩ ধারা অনুযায়ী অভিযোগ খসড়া প্রস্তুত',
-      'Draft statutory grievance letter to employer under Section 33 of Bangladesh Labour Act',
-      ROLES.B5_PANEL_LAWYER,
-      'PER-LAWYER-B5',
+      'Expedite BTRC Emergency Content Removal Request',
+      'বিটিআরসি জরুরি কনটেন্ট ব্লকিং আবেদন নিশ্চিতকরণ',
+      'Coordinate with CID liaison officer for URL removal from target Telegram channel',
+      ROLES.B7_DLAO_ADMIN,
+      'PER-ADMIN-B7',
       '2026-09-28',
-      'HIGH',
+      'URGENT',
       'IN_PROGRESS'
     );
 
     // ========================================================================
-    // SCENARIO 4: NUCHING MARMA (Indigenous Citizen, UDC Intake, Translation Provenance)
+    // SCENARIO 4: NUCHING MARMA
+    // Indigenous, Marma language, low literacy, UDC-assisted, unreliable connectivity
+    // Full provenance chain: spoken -> translated -> typed -> AI -> human confirmed
     // ========================================================================
     const app4Id = 'APP-20260912-0004';
     const case4Id = 'CASE-20260912-0004';
@@ -661,7 +782,9 @@ function seed(dbInstance = null) {
       JSON.stringify({
         ancestral_holding_years: 40,
         village_headman_cert: 'HEADMAN-CERT-BG-41',
-        intake_mode: 'UDC_ASSISTED'
+        intake_mode: 'UDC_ASSISTED',
+        connectivity_mode: 'OFFLINE_SYNC_PERIODIC',
+        primary_dialect: 'Marma'
       }),
       ROLES.B4_UDC_ENTREPRENEUR,
       'PER-UDC-B4'
@@ -680,6 +803,11 @@ function seed(dbInstance = null) {
       'Joint District Judge Court Rangamati',
       'PER-RECEIVING-B6',
       null,
+      '2026-09-12T11:00:00Z',
+      null,
+      'ACTIVE',
+      'NORMAL',
+      '16699-NUCHING-3014',
       JSON.stringify({ special_statute: 'Chittagong Hill Tracts Regulation 1900' })
     );
 
@@ -691,10 +819,9 @@ function seed(dbInstance = null) {
       'SELF',
       null,
       1,
-      'Indigenous applicant speaking Marma; assisted by UDC Entrepreneur'
+      'Indigenous applicant speaking Marma; assisted by UDC Entrepreneur Minu Akhter'
     );
 
-    // PROVENANCE PIPELINE FOR NUCHING MARMA:
     // 1. Spoken by person in Marma
     insertProvStmt.run(
       'PRV-003',
@@ -708,9 +835,11 @@ function seed(dbInstance = null) {
       'marma',
       'PER-CITIZEN-NUCHING',
       ROLES.CITIZEN_APPLICANT,
-      JSON.stringify({ audio_snippet: 'UDC-AUDIO-RNG-04' }),
-      'আবেদনকারী মারমা ভাষায় তার পৈতৃক জমি দখলের বিবরণ দিয়েছেন।',
-      'Original oral narrative spoken by Nuching Marma in Marma language at Baghaichhari UDC.',
+      0,
+      null,
+      JSON.stringify({ audio_recording_ref: 'UDC-AUDIO-RNG-MARMA-04' }),
+      'Original oral narrative spoken by Nuching Marma in Marma language describing ancestral boundaries.',
+      'Oral audio recording archived at Baghaichhari UDC offline terminal.',
       null,
       null
     );
@@ -728,16 +857,40 @@ function seed(dbInstance = null) {
       'bn',
       'PER-UDC-B4',
       ROLES.B4_UDC_ENTREPRENEUR,
-      JSON.stringify({ translator: 'Minu Akhter (UDC)', certified: true }),
-      'মারমা ভাষা থেকে বাংলায় অনুবাদ: গত তিন প্রজন্ম ধরে চাষাবাদ করা পাহাড়ি জমি থেকে উচ্ছেদের হুমকি দেওয়া হচ্ছে।',
-      'Translation from Marma to Bangla: Threats of eviction from hill agricultural plot farmed across three generations.',
+      0,
+      null,
+      JSON.stringify({ translator: 'Minu Akhter (UDC)', oral_translation: true }),
+      'মারমা ভাষা থেকে বাংলায় অনুবাদ: তিন প্রজন্ম ধরে চাষাবাদ করা পাহাড়ি জমি থেকে উচ্ছেদের হুমকি দেওয়া হচ্ছে।',
+      'Eviction threats against ancestral hill farming plot cultivated over three generations.',
       null,
       null
     );
 
-    // 3. AI-Assisted Classification & Means Test Pre-check
+    // 3. Typed by Staff at UDC
     insertProvStmt.run(
       'PRV-005',
+      case4Id,
+      app4Id,
+      'application',
+      app4Id,
+      'intake_text_entry',
+      PROVENANCE_SOURCES.TYPED_BY_STAFF,
+      'bn',
+      'bn',
+      'PER-UDC-B4',
+      ROLES.B4_UDC_ENTREPRENEUR,
+      0,
+      null,
+      JSON.stringify({ terminal: 'UDC_TERMINAL_BAGHAICHHARI_01' }),
+      'আবেদনকারী নিরক্ষর হওয়ায় ইউডিসি উদ্যোক্তা আবেদনকারীর উপস্থিতিতে বক্তব্য টাইপ করেছেন।',
+      'Typed into intake terminal by UDC Entrepreneur on behalf of low-literacy applicant.',
+      null,
+      null
+    );
+
+    // 4. Inferred / AI-Assisted Classification (EXPLICITLY UNCONFIRMED)
+    insertProvStmt.run(
+      'PRV-006',
       case4Id,
       app4Id,
       'case',
@@ -748,16 +901,18 @@ function seed(dbInstance = null) {
       'en',
       'SYSTEM_AI_ASSISTANT',
       'SYSTEM',
-      JSON.stringify({ model: 'ADLASB-LegalLLM-v1', confidence: 0.94, disclaimer: 'Non-binding pre-assessment' }),
-      'AI প্রস্তাবনা: CHT রেগুলেশন ১৯০০ এবং স্পেসিফিক রিলিফ অ্যাক্ট অনুযায়ী নিষেধাজ্ঞা আবেদন উপযুক্ত।',
-      'AI Recommendation: Suitable for temporary injunction under CHT Regulation 1900 and Specific Relief Act.',
+      0,
       null,
+      JSON.stringify({ model: 'ADLASB-RulesEngine-v1', confidence: 0.94, disclaimer: 'Non-binding pre-assessment; human officer verification mandatory' }),
+      'AI প্রস্তাবনা: CHT রেগুলেশন ১৯০০ অনুযায়ী নিষেধাজ্ঞা মামলা উপযুক্ত।',
+      'AI recommendation: Temporary injunction claim under CHT Regulation 1900.',
+      null, // UNCONFIRMED
       null
     );
 
-    // 4. Confirmed by Human (DLAO Officer verifies translation & eligibility)
+    // 5. Confirmed by Human Officer
     insertProvStmt.run(
-      'PRV-006',
+      'PRV-007',
       case4Id,
       app4Id,
       'case',
@@ -768,32 +923,22 @@ function seed(dbInstance = null) {
       'bn',
       'PER-RECEIVING-B6',
       ROLES.B6_RECEIVING_DLAO,
-      JSON.stringify({ verified_with_headman_record: true }),
+      0,
+      null,
+      JSON.stringify({ headman_verification_doc: 'HEADMAN-CERT-BG-41' }),
       'ডিএলএও কর্মকর্তা হেডম্যান সনদের সাথে মিলিয়ে অনুবাদ ও তথ্য চূড়ান্তভাবে নিশ্চিত করেছেন।',
-      'DLAO Officer certified translated narrative against Mouza Headman record.',
+      'DLAO Officer certified translated narrative against Mouza Headman customary register.',
       'PER-RECEIVING-B6',
       '2026-09-13T11:00:00Z'
     );
 
-    // Task for Nuching case
-    insertTaskStmt.run(
-      'TSK-004',
-      case4Id,
-      'Verify Mouza Headman Certificate',
-      'মৌজা হেডম্যান সনদ যাচাইকরণ',
-      'Liaise with Baghaichhari Circle Office to authenticate customary possession certificate',
-      ROLES.B7_DLAO_ADMIN,
-      'PER-ADMIN-B7',
-      '2026-09-30',
-      'URGENT',
-      'PENDING'
-    );
-
     // ========================================================================
-    // SCENARIO 5: ABDUL MALEK (Long-running Land Dispute, Lawyer Accountability, Referral)
+    // SCENARIO 5: ABDUL MALEK (CORRECTED)
+    // 7-month-old case (filed ~Feb 2026), unstable contact info, panel lawyer silent,
+    // lawyer accountability alerts, citizen inquiry without smartphone
     // ========================================================================
-    const app5Id = 'APP-20210415-0005';
-    const case5Id = 'CASE-20210415-0005';
+    const app5Id = 'APP-20260220-0005';
+    const case5Id = 'CASE-20260220-0005';
 
     insertAppStmt.run(
       app5Id,
@@ -803,12 +948,13 @@ function seed(dbInstance = null) {
       'DLAO_WALKIN',
       'DLAO Sylhet',
       'CONVERTED_TO_CASE',
-      'Long-standing ancestral homestead title suit and boundary encroachment pending for over 5 years',
-      '৫ বছরের অধিক সময় ধরে চলমান পৈতৃক ভিটা জমি সংক্রান্ত স্বত্ব মামলা ও সীমানা জবরদখল',
+      'Boundary encroachment and title dispute on smallholder agricultural homestead land in Beanibazar. Filed 7 months ago; citizen lacks smartphone.',
+      'বিয়ানীবাজারে পৈতৃক বসতভিটার সীমানা জবরদখল সংক্রান্ত স্বত্ব বিরোধ। ৭ মাস পূর্বে দায়েরকৃত; আবেদনকারীর স্মার্টফোন নেই।',
       JSON.stringify({
-        initial_filing_year: 2021,
+        initial_filing_date: '2026-02-20',
+        months_elapsed: 7,
         khatian_number: 'RS-4091',
-        total_hearings_to_date: 18
+        feature_phone_user: true
       }),
       ROLES.B1_DLAO_OFFICER,
       'PER-OFFICER-B1'
@@ -817,20 +963,26 @@ function seed(dbInstance = null) {
     insertCaseStmt.run(
       case5Id,
       app5Id,
-      'DLAO-SYL-2021-0007',
-      'Abdul Malek vs Rashid Ahmed - Title Suit No. 112/2021',
-      'আব্দুল মালেক বনাম রশিদ আহমদ - স্বত্ব মামলা নং ১১২/২০২১',
+      'DLAO-SYL-2026-0048',
+      'Abdul Malek vs Rashid Ahmed - Title Suit 44/2026 (7 Months Elapsed)',
+      'আব্দুল মালেক বনাম রশিদ আহমদ - স্বত্ব মামলা ৪৪/২০২৬ (৭ মাস চলমান)',
       'LAND_PROPERTY',
-      CASE_STATES.REFERRED,
+      CASE_STATES.WAITING_FOR_ACTION,
       'HIGH',
       'DLAO Sylhet',
       'Senior Assistant Judge Court Beanibazar, Sylhet',
       'PER-OFFICER-B1',
       'PER-LAWYER-B5',
+      '2026-02-20T10:00:00Z', // 7 months ago
+      '2026-06-15T09:00:00Z', // Lawyer last active >90 days ago!
+      'SILENT_UNRESPONSIVE',   // Lawyer has gone silent
+      'CRITICAL_OVERDUE',     // Accountability alert active
+      '16699-MALEK-7492',     // USSD/voice token for non-smartphone query
       JSON.stringify({
-        court_case_no: 'Title Suit 112/2021',
-        years_pending: 5,
-        panel_lawyer_accountability_tracked: true
+        court_case_no: 'Title Suit 44/2026',
+        months_pending: 7,
+        lawyer_silent_days: 102,
+        citizen_inquiry_methods: ['USSD *16699*7492#', 'IVR Helpline 16699', 'Local UDC Walk-in']
       })
     );
 
@@ -842,10 +994,10 @@ function seed(dbInstance = null) {
       'SELF',
       null,
       1,
-      'Elderly farmer; case in progress since 2021'
+      'Elderly farmer (74 yrs); case active for 7 months; unreachable on old phone; uses USSD token'
     );
 
-    // Assign Panel Lawyer Farhana Yasmin with accountability
+    // Assign Panel Lawyer Farhana Yasmin (now silent)
     insertCasePersonStmt.run(
       'CP-008',
       case5Id,
@@ -854,101 +1006,34 @@ function seed(dbInstance = null) {
       'LEGAL_COUNSEL',
       'BAR-SYL-1982-205',
       0,
-      'Assigned panel lawyer responsible for filing written arguments and monthly hearing attendance updates'
+      'Assigned panel lawyer; currently flagged SILENT_UNRESPONSIVE (no hearing report submitted in >90 days)'
     );
 
-    // Referral for Abdul Malek (Cross-District records verification / transferred proceedings to DLAO Chattogram)
-    insertReferralStmt.run(
-      'REF-001',
-      case5Id,
-      'DLAO_TO_DLAO',
-      'DLAO Sylhet',
-      'DLAO Chattogram',
-      ROLES.B1_DLAO_OFFICER,
-      ROLES.B6_RECEIVING_DLAO,
-      'ACCEPTED',
-      'Original registered deeds located at Chattogram Divisional Record Room requiring certified extraction',
-      'মূল নিবন্ধিত দলিল চট্টগ্রাম বিভাগীয় রেকর্ড রুমে রক্ষিত থাকায় সার্টিফাইড কপি উত্তোলনের অনুরোধ',
-      'Certified title extraction completed by Receiving DLAO Chattogram'
-    );
-
-    // Tasks for Malek case (Lawyer accountability)
+    // Overdue task triggering lawyer accountability alert
     insertTaskStmt.run(
       'TSK-005',
       case5Id,
-      'Submit Monthly Hearing Progress Report',
-      'মাসিক শুনানির অগ্রগতি প্রতিবেদন দাখিল',
-      'Panel Lawyer Advocate Farhana Yasmin must submit formal report on Senior Assistant Judge Court hearing',
+      'Submit Overdue Senior Assistant Judge Hearing Progress Report',
+      'শুনানির অতিজরুরি বকেয়া অগ্রগতি প্রতিবেদন দাখিল (সতর্কবার্তা)',
+      'CRITICAL DEADLINE EXPIRED: Panel Lawyer Advocate Farhana Yasmin has failed to submit statutory monthly report since June 2026. DLAO formal warning issued.',
       ROLES.B5_PANEL_LAWYER,
       'PER-LAWYER-B5',
-      '2026-10-10',
-      'HIGH',
+      '2026-07-15', // Overdue!
+      'URGENT',
       'PENDING'
     );
 
-    insertTaskStmt.run(
-      'TSK-006',
-      case5Id,
-      'Collect Certified CS/RS Porcha Copies',
-      'সার্টিফাইড সিএস/আরএস পর্চার অনুলিপি সংগ্রহ',
-      'Collect extracted land survey records from DLAO Chattogram referral',
-      ROLES.B7_DLAO_ADMIN,
-      'PER-ADMIN-B7',
-      '2026-09-20',
-      'MEDIUM',
-      'COMPLETED'
-    );
-
-    // Incident for Abdul Malek case
-    insertIncidentStmt.run(
-      'INC-004',
-      case5Id,
-      'LAND_DISPUTE',
-      '2021-03-10',
-      'Radhanagar, Beanibazar, Sylhet',
-      'Destruction of agricultural boundary fencing and cutting of timber trees by opposing party',
-      'বিপক্ষ দল কর্তৃক সীমানা বেড়া ভাঙচুর এবং ফলজ ও কাঠের গাছ কেটে ফেলার ঘটনা',
-      'HIGH',
-      'Beanibazar Thana',
-      'FIR-12/2021',
-      'PER-OFFICER-B1'
-    );
-
-    // Audit log for Malek case
+    // Audit log for Abdul Malek lawyer silence alert
     insertAuditStmt.run(
       'AUD-004',
       case5Id,
       app5Id,
-      AUDIT_ACTIONS.LAWYER_ASSIGNED,
+      AUDIT_ACTIONS.LAWYER_SILENCE_ALERTED,
       'PER-OFFICER-B1',
       ROLES.B1_DLAO_OFFICER,
-      null,
-      JSON.stringify({ lawyer_id: 'PER-LAWYER-B5', lawyer_name: 'Advocate Farhana Yasmin' }),
-      'Assigned panel lawyer to ensure representation continuity'
-    );
-
-    insertAuditStmt.run(
-      'AUD-005',
-      case5Id,
-      app5Id,
-      AUDIT_ACTIONS.REFERRAL_CREATED,
-      'PER-OFFICER-B1',
-      ROLES.B1_DLAO_OFFICER,
-      null,
-      JSON.stringify({ referral_id: 'REF-001', to: 'DLAO Chattogram' }),
-      'Referred to DLAO Chattogram for deed retrieval'
-    );
-
-    insertAuditStmt.run(
-      'AUD-006',
-      case5Id,
-      app5Id,
-      AUDIT_ACTIONS.REFERRAL_ACCEPTED,
-      'PER-RECEIVING-B6',
-      ROLES.B6_RECEIVING_DLAO,
-      null,
-      JSON.stringify({ referral_id: 'REF-001', status: 'ACCEPTED' }),
-      'DLAO Chattogram accepted referral and initiated record search'
+      JSON.stringify({ lawyer_status: 'ACTIVE' }),
+      JSON.stringify({ lawyer_status: 'SILENT_UNRESPONSIVE', alert_level: 'CRITICAL_OVERDUE' }),
+      'Automated deadline monitor flagged panel lawyer inactive for 102 days. Show-cause notice queued.'
     );
   });
 
@@ -959,7 +1044,7 @@ function seed(dbInstance = null) {
 if (require.main === module) {
   try {
     seed();
-    console.log('Database seeded successfully with all 5 citizen scenarios and 7 provider roles.');
+    console.log('Database seeded successfully with corrected 5 citizen scenarios and 7 provider roles.');
   } catch (err) {
     console.error('Seeding failed:', err);
     process.exit(1);

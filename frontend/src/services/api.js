@@ -102,6 +102,55 @@ export const api = {
   createCaseEvent: (caseId, payload) => request(`/cases/${caseId}/events`, {
     method: 'POST',
     body: JSON.stringify(payload)
+  }),
+  // Safe Contact (Flow 1)
+  configureSafeContact: (caseId, payload) => request(`/cases/${caseId}/safe-contact`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  getSafeContacts: (caseId) => request(`/cases/${caseId}/safe-contact`),
+  // Referrals
+  acknowledgeCaseReferral: (caseId, referralId, payload = {}) => request(`/cases/${caseId}/referrals/${referralId}/acknowledge`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  assignReferralOwnership: (caseId, referralId, payload) => request(`/cases/${caseId}/referrals/${referralId}/ownership`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  updateReferralStatus: (caseId, referralId, payload) => request(`/cases/${caseId}/referrals/${referralId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload)
+  }),
+  // Flow 3: Sensitive Evidence Vault
+  getCaseEvidence: (caseId) => request(`/cases/${caseId}/evidence`),
+  getEvidenceItem: (caseId, evidenceId) => request(`/cases/${caseId}/evidence/${evidenceId}`),
+  registerCaseEvidence: (caseId, payload) => request(`/cases/${caseId}/evidence`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  // Flow 2: Offline Synchronization & AI Pre-Assessment
+  syncApplication: (payload) => request('/sync/applications', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  resolveConflict: (payload) => request('/sync/resolve-conflict', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  aiPreAssess: (payload) => request('/ai-pre-assess', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  // Flow 4: Lawyer Accountability & Non-Smartphone Citizen Status Query
+  getCitizenStatus: (query) => request(`/citizen/status?query=${encodeURIComponent(query)}`),
+  recordLawyerActivity: (caseId, payload) => request(`/cases/${caseId}/lawyer/activity`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  escalateLawyer: (caseId, payload) => request(`/cases/${caseId}/lawyer/escalate`, {
+    method: 'POST',
+    body: JSON.stringify(payload)
   })
 };
 

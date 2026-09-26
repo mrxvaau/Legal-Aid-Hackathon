@@ -4,7 +4,13 @@
 - Development / Direct: `http://localhost:5000/api`
 - Frontend Vite Proxy: `/api`
 
-## Authentication & Actor Headers
+## Prototype Actor Simulation Headers
+
+> [!NOTE]
+> **DEVELOPMENT / PROTOTYPE ACTOR SIMULATION**
+> The headers below are used for prototype demonstration and test actor simulation. They are **NOT** production authentication.
+> The backend authorization middleware remains the sole authority. Malicious clients cannot bypass permission guards by spoofing UI state.
+
 Every request can specify the caller's context via HTTP headers:
 - `x-user-role`: The role identifier (e.g., `B1_DLAO_OFFICER`, `B3_HELPLINE_AGENT`, `CITIZEN_APPLICANT`). Defaults to `B1_DLAO_OFFICER` if omitted.
 - `x-user-id`: Caller identifier (e.g., `PER-OFFICER-B1`).
@@ -27,27 +33,26 @@ Returns system status.
 ```
 
 ### `GET /api/meta`
-Returns role metadata, case state definitions, and permission matrices.
+Returns 7 provider roles, case state definitions, and permission matrices.
 
 ---
 
 ## 2. Applications (Intake Stage)
 
 ### `POST /api/applications`
-Register a citizen application. Can pass inline applicant and representative objects or existing person IDs.
+Register a citizen application. Supports inline applicant and representative objects, secondhand reporting flags, and provenance attribution.
 - **Required Permission**: `application:create`
 - **Request Body**:
 ```json
 {
   "applicant": {
-    "full_name": "Parvin Begum",
-    "full_name_bn": "পারভীন বেগম",
-    "national_id": "NID-199400291011",
-    "phone": "01710000000",
+    "full_name": "Moyuri Akter",
+    "full_name_bn": "ময়ূরী আক্তার",
+    "phone": "01822000101",
     "gender": "FEMALE",
     "district": "Dhaka",
     "division": "Dhaka",
-    "socio_economic_profile": { "income": 9000 }
+    "socio_economic_profile": { "income": 8000 }
   },
   "representative": {
     "full_name": "Ripon",
@@ -57,8 +62,13 @@ Register a citizen application. Can pass inline applicant and representative obj
   "category": "FAMILY_DISPUTE",
   "intake_channel": "DLAO_WALKIN",
   "intake_office": "DLAO Dhaka",
-  "summary": "Maintenance claim and domestic grievance",
-  "summary_bn": "খোরপোশ ও পারিবারিক সুরক্ষা দাবি"
+  "summary": "Perpetrator husband controls phone; safe contact required",
+  "provenance": {
+    "field_name": "intake_grievance_narrative",
+    "source_type": "spoken_by_person",
+    "is_secondhand_report": 1,
+    "reported_for_person_id": "PER-CITIZEN-MOYURI"
+  }
 }
 ```
 - **Response**: `201 Created` with created application object including trace ID (`APP-YYYYMMDD-XXXX`).
@@ -75,7 +85,7 @@ List applications with query filters: `?status=SUBMITTED&intake_office=DLAO%20Dh
 ## 3. Core Cases
 
 ### `POST /api/cases`
-Convert an application into an active case.
+Convert an application into an active case. Supports optional inline `safe_contact` configuration.
 - **Required Permission**: `case:create`
 - **Request Body**:
 ```json
@@ -84,18 +94,26 @@ Convert an application into an active case.
   "title": "Moyuri Akter vs Faruk Hossain",
   "title_bn": "ময়ূরী আক্তার বনাম ফারুক হোসেন",
   "priority": "HIGH",
-  "intake_office": "DLAO Dhaka"
+  "intake_office": "DLAO Dhaka",
+  "safe_contact": {
+    "preferred_contact_method": "IN_PERSON_REPRESENTATIVE",
+    "unsafe_channels": ["PRIMARY_PHONE", "DIRECT_SMS"],
+    "safe_channel_details": "Contact brother Ripon at 01822000102. NEVER call applicant.",
+    "restriction_reason": "Husband controls applicant phone and confiscated NID",
+    "danger_level": "HIGH"
+  }
 }
 ```
-- **Response**: `201 Created` with case record. Automatically links the applicant and representative from the application into `case_people`.
+- **Response**: `201 Created` with case record. Automatically links the applicant and representative into `case_people` without merging identities.
 
 ### `GET /api/cases/:id`
 Retrieve the complete integrated case dossier including:
 - Linked application trace and original summary
 - Participants (`people`) with distinct representative status
+- Safe contact protocols (`safe_contacts`) — automatically masked if caller lacks `safe_contact:read`
 - Tasks & SLAs (`tasks`)
-- Inter-district referrals (`referrals`)
-- Linked incident reports & police references (`incidents`)
+- Inter-district & institutional referrals (`referrals`)
+- Linked incident reports & sensitive evidence (`incidents`)
 - Provenance trail (`provenance`)
 - Immutable audit trail (`audit_trail`)
 
@@ -109,10 +127,34 @@ Update case status to one of the 11 shared states.
 
 ---
 
-## 4. Case People & Representatives
+## 4. Safe Contact Protocol (Flow 1)
+
+### `POST /api/cases/:id/safe-contact`
+Configure confidential safe contact mode and restrict compromised channels.
+- **Required Permission**: `safe_contact:configure`
+- **Request Body**:
+```json
+{
+  "preferred_contact_method": "IN_PERSON_REPRESENTATIVE",
+  "unsafe_channels": ["PRIMARY_PHONE", "DIRECT_SMS", "UNSCHEDULED_HOME_VISIT"],
+  "safe_channel_details": "Contact ONLY through brother Ripon at 01822000102.",
+  "restriction_reason": "Perpetrator husband controls phone and monitors incoming messages.",
+  "danger_level": "HIGH"
+}
+```
+- **Response**: `201 Created` with configured safe contact and audit event.
+
+### `GET /api/cases/:id/safe-contact`
+List safe contacts for a case.
+- **Required Permission**: `case:read`
+- **Behavior**: If caller possesses `safe_contact:read`, unmasked instructions are returned. If caller lacks `safe_contact:read`, `safe_channel_details` is automatically masked with `[REDACTED: RESTRICTED CONTACT PROTOCOL ACTIVE]`.
+
+---
+
+## 5. Case People & Representatives
 
 ### `POST /api/cases/:id/people`
-Link a person to the case.
+Link a participant to the case.
 - **Required Permission**: `people:link`
 - **Request Body**:
 ```json
@@ -134,64 +176,52 @@ List participants linked to the case.
 
 ---
 
-## 5. Tasks & SLAs
+## 6. Tasks & SLAs
 
 ### `POST /api/cases/:id/tasks`
 Create an accountability follow-up task.
 - **Required Permission**: `task:create`
-- **Request Body**:
-```json
-{
-  "title": "Draft Section 33 Petition",
-  "title_bn": "শ্রম আইনের ৩৩ ধারা অনুযায়ী অভিযোগ খসড়া প্রস্তুত",
-  "assigned_to_role": "B5_PANEL_LAWYER",
-  "due_date": "2026-10-15",
-  "priority": "HIGH"
-}
-```
 
 ### `GET /api/cases/:id/tasks`
 List tasks for the case ordered by priority.
 
 ---
 
-## 6. Referrals
+## 7. Referrals & Escalations
 
 ### `POST /api/cases/:id/referrals`
 Route case across districts or institutions. Automatically transitions case status to `REFERRED`.
 - **Required Permission**: `referral:create`
-- **Request Body**:
-```json
-{
-  "referral_type": "DLAO_TO_DLAO",
-  "referring_office": "DLAO Sylhet",
-  "receiving_office": "DLAO Chattogram",
-  "reason": "Original deeds in Chattogram record room",
-  "reason_bn": "মূল দলিল চট্টগ্রাম রেকর্ড রুমে রক্ষিত"
-}
-```
+
+### `POST /api/cases/:id/referrals/:refId/acknowledge`
+Acknowledge institutional referral receipt and record assigned agency officer.
+- **Required Permission**: `referral:acknowledge`
+- **Request Body**: `{ "assigned_officer_id": "OFFICER-CID-CYBER-88", "notes": "Acknowledged by Cyber Crime unit" }`
 
 ### `POST /api/cases/:id/referrals/:referralId/accept`
-Accept a referral at the receiving office.
+Accept an inbound transfer referral at the receiving office.
 - **Required Permission**: `referral:accept`
 
 ---
 
-## 7. Incidents & Police Coordination
+## 8. Incidents & Sensitive Evidence
 
 ### `POST /api/cases/:id/incidents`
-Link an incident report or Thana General Diary / FIR.
+Link an incident report, sensitive digital evidence, or Thana GD/FIR.
 - **Required Permission**: `incident:link`
 - **Request Body**:
 ```json
 {
-  "incident_type": "DOMESTIC_VIOLENCE",
-  "incident_date": "2026-08-28",
-  "location": "Mirpur, Dhaka",
-  "description": "Physical assault and threat of eviction",
-  "severity": "HIGH",
-  "police_station_jurisdiction": "Mirpur Model Thana",
-  "gd_or_fir_number": "GD-884/2026"
+  "incident_type": "CYBER_HARASSMENT_IMAGE_ABUSE",
+  "incident_date": "2026-09-09",
+  "location": "Telegram Group / Online",
+  "description": "Perpetrator altered explicit images from victim profile and extorted funds",
+  "severity": "CRITICAL",
+  "is_sensitive_evidence": 1,
+  "evidence_privacy_level": "STRICTLY_RESTRICTED_IMAGE_ABUSE",
+  "redacted_summary": "[RESTRICTED EVIDENCE]: 6 screenshots of blackmail messages stored in vault",
+  "gd_or_fir_number": "GD-1102/2026",
+  "police_station_jurisdiction": "Dhanmondi Thana"
 }
 ```
 
@@ -200,31 +230,19 @@ List linked incidents for the case.
 
 ---
 
-## 8. Provenance & Audit Trail
+## 9. Provenance & Audit Trail
 
 ### `POST /api/cases/:id/provenance`
 Log origin, translation, or AI assistance.
 - **Required Permission**: `provenance:record`
-- **Request Body**:
-```json
-{
-  "field_name": "translated_narrative",
-  "source_type": "translated",
-  "source_language": "marma",
-  "target_language": "bn",
-  "raw_content": "Original oral narrative in Marma",
-  "processed_content": "Translated Bangla statement",
-  "source_details": { "translator": "Minu Akhter (UDC)" }
-}
-```
 
 ### `POST /api/cases/:id/provenance/:provId/confirm`
 Human officer confirmation of AI or translated information.
 - **Required Permission**: `provenance:confirm`
 
 ### `POST /api/cases/:id/events`
-Record explicit case audit event.
-- **Required Permission**: `case:read`
+Record a state-changing event in case history.
+- **Required Permission**: `case:create_event` *(Guarded by mutation permission, NOT read-only permission)*
 - **Request Body**:
 ```json
 {
@@ -235,3 +253,4 @@ Record explicit case audit event.
 
 ### `GET /api/cases/:id/events`
 Retrieve immutable audit trail for the case.
+- **Required Permission**: `case:read`

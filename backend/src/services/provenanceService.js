@@ -4,7 +4,7 @@ const { PROVENANCE_SOURCES } = require('../utils/constants');
 
 class ProvenanceService {
   /**
-   * Record provenance information to track origin, translation, or AI assistance
+   * Record provenance information to track origin, translation, AI assistance, or secondhand reporting
    */
   recordProvenance({
     case_id = null,
@@ -17,6 +17,8 @@ class ProvenanceService {
     target_language = null,
     author_id = null,
     author_role,
+    is_secondhand_report = false,
+    reported_for_person_id = null,
     source_details = null,
     raw_content = null,
     processed_content = null,
@@ -46,6 +48,8 @@ class ProvenanceService {
       target_language,
       author_id,
       author_role,
+      is_secondhand_report,
+      reported_for_person_id,
       source_details,
       raw_content,
       processed_content,

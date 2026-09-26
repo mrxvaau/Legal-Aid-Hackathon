@@ -208,6 +208,19 @@ export default function ProvenanceView({ caseId, provenance = [], onRefresh }) {
                         🌐 {prov.source_language.toUpperCase()} → {(prov.target_language || 'BN').toUpperCase()}
                       </span>
                     )}
+                    {prov.is_secondhand_report === 1 && (
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        backgroundColor: '#FEF3C7',
+                        color: '#92400E',
+                        border: '1px solid #FDE68A'
+                      }}>
+                        👥 Secondhand Report on Behalf of: {prov.reported_for_person_id || 'Applicant'}
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                     <span className="prov-author">

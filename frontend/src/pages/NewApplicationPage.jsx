@@ -8,7 +8,7 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
   const [error, setError] = useState(null);
   const [successInfo, setSuccessInfo] = useState(null);
 
-  // Form State
+  // Applicant State
   const [applicant, setApplicant] = useState({
     full_name: '',
     full_name_bn: '',
@@ -21,7 +21,9 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
     vulnerability: ''
   });
 
+  // Representative State (Ripon Pattern)
   const [hasRepresentative, setHasRepresentative] = useState(false);
+  const [isAccessibleMode, setIsAccessibleMode] = useState(false);
   const [representative, setRepresentative] = useState({
     full_name: '',
     full_name_bn: '',
@@ -31,6 +33,17 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
     auth_doc_ref: ''
   });
 
+  // Safe Contact Mode State (Moyuri Pattern)
+  const [isSafeContactActive, setIsSafeContactActive] = useState(false);
+  const [safeContactData, setSafeContactData] = useState({
+    preferred_contact_method: 'IN_PERSON_REPRESENTATIVE',
+    danger_level: 'HIGH',
+    unsafe_channels: ['PRIMARY_PHONE', 'DIRECT_SMS'],
+    safe_channel_details: '',
+    restriction_reason: ''
+  });
+
+  // Application & Provenance State
   const [application, setApplication] = useState({
     category: 'FAMILY_DISPUTE',
     intake_channel: 'DLAO_WALKIN',
@@ -39,6 +52,18 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
     summary_bn: '',
     provenance_source: 'spoken_by_person'
   });
+
+  const handleToggleUnsafeChannel = (ch) => {
+    setSafeContactData((prev) => {
+      const exists = prev.unsafe_channels.includes(ch);
+      return {
+        ...prev,
+        unsafe_channels: exists
+          ? prev.unsafe_channels.filter((c) => c !== ch)
+          : [...prev.unsafe_channels, ch]
+      };
+    });
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -58,22 +83,28 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
           division: applicant.division,
           socio_economic_profile: {
             income: applicant.income,
-            vulnerability: applicant.vulnerability
+            vulnerability: applicant.vulnerability,
+            safe_contact_required: isSafeContactActive
           }
         },
         category: application.category,
-        intake_channel: application.intake_channel,
+        intake_channel: isAccessibleMode ? 'VOICE_FIRST_INTAKE' : application.intake_channel,
         intake_office: application.intake_office,
         summary: application.summary,
         summary_bn: application.summary_bn || null,
         provenance: {
-          field_name: 'intake_narrative',
+          field_name: 'intake_grievance_narrative',
           source_type: application.provenance_source,
           source_language: 'bn',
           target_language: 'bn',
           raw_content: application.summary,
           processed_content: application.summary,
-          source_details: { channel: application.intake_channel }
+          is_secondhand_report: hasRepresentative ? 1 : 0,
+          source_details: {
+            intake_channel: application.intake_channel,
+            voice_first_mode: isAccessibleMode,
+            reporter: hasRepresentative ? representative.full_name : applicant.full_name
+          }
         }
       };
 
@@ -84,11 +115,22 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
           national_id: representative.national_id || null,
           phone: representative.phone || null,
           district: applicant.district,
-          division: applicant.division
+          division: applicant.division,
+          socio_economic_profile: {
+            relationship_to_applicant: representative.relationship,
+            accessibility: isAccessibleMode
+              ? {
+                  visual_impairment: true,
+                  interaction_mode: 'NON_VISUAL_VOICE_FIRST',
+                  no_captcha_required: true,
+                  no_visual_otp_required: true
+                }
+              : null
+          }
         };
       }
 
-      // 1. Create Application via Backend API
+      // 1. Create Application in SQLite Backend
       const appRes = await api.createApplication(payload);
       const createdApp = appRes.data;
 
@@ -100,7 +142,8 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
         category: application.category,
         intake_office: application.intake_office,
         representative_relationship: representative.relationship,
-        authorization_doc_ref: representative.auth_doc_ref
+        authorization_doc_ref: representative.auth_doc_ref,
+        safe_contact: isSafeContactActive ? safeContactData : null
       });
 
       setSuccessInfo({
@@ -109,7 +152,7 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
         caseNumber: caseRes.data.case_number
       });
 
-      // Switch to newly created case after short delay
+      // Switch to newly created case dossier after brief notice
       setTimeout(() => {
         if (onCaseCreated) {
           onCaseCreated(caseRes.data.id);
@@ -128,7 +171,11 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
       <div className="page-header-row">
         <div>
           <h2 className="page-title">{t('intake.title')}</h2>
-          <p className="page-subtitle">{t('intake.subtitle')}</p>
+          <p className="page-subtitle">
+            {language === 'bn'
+              ? 'আইনগত সহায়তা আবেদন গ্রহণ — সম্পূর্ণ প্রমাণ লগ ও নিরাপত্তা সুরক্ষা সহ'
+              : 'Register Citizen Application with Provenance & Safe-Contact Integrity'}
+          </p>
         </div>
         <button className="btn-secondary" onClick={onCancel}>
           {t('common.cancel')}
@@ -158,7 +205,7 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
                 className="form-input"
                 value={applicant.full_name}
                 onChange={(e) => setApplicant({ ...applicant, full_name: e.target.value })}
-                placeholder="e.g. Parvin Begum"
+                placeholder="e.g. Moyuri Akter"
               />
             </div>
             <div>
@@ -168,7 +215,7 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
                 className="form-input"
                 value={applicant.full_name_bn}
                 onChange={(e) => setApplicant({ ...applicant, full_name_bn: e.target.value })}
-                placeholder="e.g. পারভীন বেগম"
+                placeholder="যেমন: ময়ূরী আক্তার"
               />
             </div>
             <div>
@@ -178,7 +225,7 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
                 className="form-input"
                 value={applicant.national_id}
                 onChange={(e) => setApplicant({ ...applicant, national_id: e.target.value })}
-                placeholder="NID / BRN number"
+                placeholder="NID / BRN (Optional if confiscated)"
               />
             </div>
           </div>
@@ -219,11 +266,11 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
           </div>
         </div>
 
-        {/* Section 2: Authorized Representative (Moyuri & Ripon Pattern) */}
+        {/* Section 2: Authorized Representative & Secondhand Reporting (Ripon Pattern) */}
         <div className="form-section">
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <h3 className="section-title">2. Legal Representation (অনুমোদিত প্রতিনিধি)</h3>
-            <label className="checkbox-label">
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <h3 className="section-title">2. Legal Representation & Secondhand Reporting (প্রতিনিধিত্ব ও দ্বিতীয়পক্ষীয় আবেদন)</h3>
+            <label className="checkbox-label" style={{ background: '#F1F5F9', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer' }}>
               <input
                 type="checkbox"
                 checked={hasRepresentative}
@@ -234,10 +281,26 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
           </div>
 
           {hasRepresentative && (
-            <div className="representative-subform">
-              <p className="hint-text">
-                ⚠️ Explicit representation mode (Moyuri & Ripon pattern): Representative identity is kept distinct and linked via authorization documentation.
+            <div className="representative-subform" style={{ marginTop: '12px', padding: '16px', background: '#F8FAFC', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
+              <p style={{ margin: '0 0 12px 0', fontSize: '13px', color: '#475569' }}>
+                ℹ️ <strong>Secondhand Reporting Provenance:</strong> Ripon / representative identity is kept distinct and verified via authorization documentation. Provenance will register this as secondhand oral report on behalf of the applicant.
               </p>
+
+              {/* Accessibility Mode Toggle for Blind/Voice-first Pathway */}
+              <div style={{ padding: '10px 14px', background: '#EEF2FF', borderRadius: '6px', border: '1px solid #C7D2FE', marginBottom: '14px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: '700', color: '#3730A3', fontSize: '13px' }}>
+                  <input
+                    type="checkbox"
+                    checked={isAccessibleMode}
+                    onChange={(e) => setIsAccessibleMode(e.target.checked)}
+                  />
+                  <span>{t('accessibility.voiceFirstTitle')}</span>
+                </label>
+                <p style={{ margin: '4px 0 0 24px', fontSize: '12px', color: '#4338CA' }}>
+                  {t('accessibility.voiceFirstDesc')}
+                </p>
+              </div>
+
               <div className="form-grid-3">
                 <div>
                   <label className="form-label">{t('intake.repName')} *</label>
@@ -268,7 +331,30 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
                     className="form-input"
                     value={representative.auth_doc_ref}
                     onChange={(e) => setRepresentative({ ...representative, auth_doc_ref: e.target.value })}
-                    placeholder="e.g. DLAO-REP-AUTH-2026-DH-099"
+                    placeholder="e.g. DLAO-REP-AUTH-2026-DH-091"
+                  />
+                </div>
+              </div>
+
+              <div className="form-grid-2" style={{ marginTop: '12px' }}>
+                <div>
+                  <label className="form-label">Representative Phone (প্রতিনিধির ফোন)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={representative.phone}
+                    onChange={(e) => setRepresentative({ ...representative, phone: e.target.value })}
+                    placeholder="01822000102"
+                  />
+                </div>
+                <div>
+                  <label className="form-label">Representative NID (প্রতিনিধির এনআইডি)</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={representative.national_id}
+                    onChange={(e) => setRepresentative({ ...representative, national_id: e.target.value })}
+                    placeholder="NID-199656100102"
                   />
                 </div>
               </div>
@@ -276,9 +362,115 @@ export default function NewApplicationPage({ onCaseCreated, onCancel }) {
           )}
         </div>
 
-        {/* Section 3: Legal Aid Problem & Intake Origin */}
+        {/* Section 3: Safe Contact Protocol Mode (Flow 1: Moyuri Pattern) */}
         <div className="form-section">
-          <h3 className="section-title">3. Case Classification & Provenance Origin</h3>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <h3 className="section-title">3. Safe Contact Protection Protocol (সুরক্ষিত যোগাযোগ প্রটোকল)</h3>
+            <label className="checkbox-label" style={{ background: '#FEF2F2', padding: '6px 12px', borderRadius: '6px', cursor: 'pointer', border: '1px solid #FECACA' }}>
+              <input
+                type="checkbox"
+                checked={isSafeContactActive}
+                onChange={(e) => setIsSafeContactActive(e.target.checked)}
+              />
+              <strong style={{ color: '#991B1B' }}>🛡️ {t('safeContact.enableMode')}</strong>
+            </label>
+          </div>
+
+          {isSafeContactActive && (
+            <div style={{ marginTop: '12px', padding: '16px', background: '#FFFBEB', borderRadius: '8px', border: '1px solid #FDE68A' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px', color: '#92400E' }}>
+                <span style={{ fontSize: '18px' }}>⚠️</span>
+                <strong>{t('safeContact.activeAlert')}</strong>
+              </div>
+
+              <div className="form-grid-2">
+                <div>
+                  <label className="form-label">{t('safeContact.preferredMethod')} *</label>
+                  <select
+                    className="form-input"
+                    value={safeContactData.preferred_contact_method}
+                    onChange={(e) => setSafeContactData({ ...safeContactData, preferred_contact_method: e.target.value })}
+                  >
+                    <option value="IN_PERSON_REPRESENTATIVE">In-Person Authorized Representative (অনুমোদিত প্রতিনিধির মাধ্যমে)</option>
+                    <option value="ALTERNATIVE_PHONE">Alternative Confidential Phone (বিকল্প গোপনীয় ফোন)</option>
+                    <option value="SECURE_OFFICE_VISIT">Scheduled DLAO Office Visit Only (নির্ধারিত অফিস সাক্ষাৎ)</option>
+                    <option value="COMMUNITY_PARALEGAL">Confidential Community Paralegal (প্যারা-লিগ্যাল প্রতিনিধি)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="form-label">{t('safeContact.dangerLevel')} *</label>
+                  <select
+                    className="form-input"
+                    value={safeContactData.danger_level}
+                    onChange={(e) => setSafeContactData({ ...safeContactData, danger_level: e.target.value })}
+                  >
+                    <option value="HIGH">High Immediate Risk (উচ্চ তাৎক্ষণিক ঝুঁকি)</option>
+                    <option value="CRITICAL">Critical Life Safety Risk (চরম জীবনহানি ঝুঁকি)</option>
+                    <option value="MEDIUM">Medium Precautionary (সতর্কতামূলক মধ্যম ঝুঁকি)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label className="form-label">{t('safeContact.unsafeChannels')} (Strictly Blocked):</label>
+                <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '6px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={safeContactData.unsafe_channels.includes('PRIMARY_PHONE')}
+                      onChange={() => handleToggleUnsafeChannel('PRIMARY_PHONE')}
+                    />
+                    Primary Phone (আবেদনকারীর মূল ফোন)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={safeContactData.unsafe_channels.includes('DIRECT_SMS')}
+                      onChange={() => handleToggleUnsafeChannel('DIRECT_SMS')}
+                    />
+                    Direct SMS (সরাসরি এসএমএস)
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={safeContactData.unsafe_channels.includes('UNSCHEDULED_HOME_VISIT')}
+                      onChange={() => handleToggleUnsafeChannel('UNSCHEDULED_HOME_VISIT')}
+                    />
+                    Unscheduled Home Visit (না জানিয়ে বাড়ি পরিদর্শন)
+                  </label>
+                </div>
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label className="form-label">{t('safeContact.safeDetails')} *</label>
+                <textarea
+                  required={isSafeContactActive}
+                  rows={2}
+                  className="form-input"
+                  value={safeContactData.safe_channel_details}
+                  onChange={(e) => setSafeContactData({ ...safeContactData, safe_channel_details: e.target.value })}
+                  placeholder="e.g. Contact ONLY through brother Ripon at 01822000102. NEVER send SMS or place calls to applicant number as perpetrator intercepts all communications."
+                />
+              </div>
+
+              <div style={{ marginTop: '12px' }}>
+                <label className="form-label">{t('safeContact.restrictionReason')} *</label>
+                <input
+                  type="text"
+                  required={isSafeContactActive}
+                  className="form-input"
+                  value={safeContactData.restriction_reason}
+                  onChange={(e) => setSafeContactData({ ...safeContactData, restriction_reason: e.target.value })}
+                  placeholder="e.g. Perpetrator husband controls phone, monitors messages, and confiscated NID card."
+                />
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Section 4: Legal Aid Problem & Intake Origin */}
+        <div className="form-section">
+          <h3 className="section-title">4. Case Classification & Provenance Origin (মামলার ধরন ও তথ্যের উৎস)</h3>
           <div className="form-grid-3">
             <div>
               <label className="form-label">{t('intake.category')} *</label>

@@ -18,6 +18,8 @@ module.exports = {
   taskId: () => generateShortId('TSK'),
   referralId: () => generateShortId('REF'),
   incidentId: () => generateShortId('INC'),
+  evidenceId: () => generateId('EV'),
   provenanceId: () => generateShortId('PRV'),
   auditId: () => generateShortId('AUD')
 };
+

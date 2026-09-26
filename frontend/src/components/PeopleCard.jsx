@@ -206,6 +206,19 @@ export default function PeopleCard({ caseId, people = [], onRefresh }) {
                         ★ {t('people.primaryContact')}
                       </span>
                     )}
+                    {p.socio_economic_profile?.accessibility && (
+                      <span style={{
+                        padding: '2px 8px',
+                        borderRadius: '4px',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        backgroundColor: '#EEF2FF',
+                        color: '#4338CA',
+                        border: '1px solid #C7D2FE'
+                      }}>
+                        ♿ {t('accessibility.badge')}
+                      </span>
+                    )}
                   </div>
 
                   <div className="person-details">

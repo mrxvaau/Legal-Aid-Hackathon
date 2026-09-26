@@ -1,5 +1,5 @@
 -- ADLASB Digital Legal Aid System Database Schema (SQLite)
--- Version 1.0.0
+-- Version 2.0.0 (Phase 1 Compliance & Flow 1 Foundation)
 
 PRAGMA foreign_keys = ON;
 
@@ -29,6 +29,7 @@ CREATE INDEX IF NOT EXISTS idx_people_district ON people(district);
 -- 2. Applications (Intake Stage)
 CREATE TABLE IF NOT EXISTS applications (
     id TEXT PRIMARY KEY,
+    client_request_id TEXT UNIQUE,
     applicant_id TEXT NOT NULL,
     representative_id TEXT,
     category TEXT NOT NULL,
@@ -38,6 +39,8 @@ CREATE TABLE IF NOT EXISTS applications (
     summary TEXT NOT NULL,
     summary_bn TEXT,
     details_json TEXT, -- JSON
+    version INTEGER NOT NULL DEFAULT 1,
+    sync_status TEXT NOT NULL DEFAULT 'SYNCED',
     created_by_role TEXT NOT NULL,
     created_by_user_id TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -49,6 +52,7 @@ CREATE TABLE IF NOT EXISTS applications (
 CREATE INDEX IF NOT EXISTS idx_apps_applicant ON applications(applicant_id);
 CREATE INDEX IF NOT EXISTS idx_apps_status ON applications(status);
 CREATE INDEX IF NOT EXISTS idx_apps_office ON applications(intake_office);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_apps_client_req ON applications(client_request_id) WHERE client_request_id IS NOT NULL;
 
 -- 3. Core Cases
 CREATE TABLE IF NOT EXISTS cases (
@@ -68,6 +72,11 @@ CREATE TABLE IF NOT EXISTS cases (
     court_name TEXT,
     assigned_officer_id TEXT,
     assigned_lawyer_id TEXT,
+    filing_date TEXT NOT NULL DEFAULT (datetime('now')),
+    lawyer_last_active_at TEXT,
+    lawyer_status TEXT NOT NULL DEFAULT 'ACTIVE' CHECK(lawyer_status IN ('ACTIVE', 'SILENT_UNRESPONSIVE', 'WARNED', 'REASSIGNED', 'AT_RISK', 'OVERDUE', 'ESCALATED')),
+    deadline_alert_level TEXT NOT NULL DEFAULT 'NORMAL' CHECK(deadline_alert_level IN ('NORMAL', 'WARNING_APPROACHING', 'CRITICAL_OVERDUE', 'AT_RISK', 'OVERDUE', 'ESCALATED')),
+    citizen_inquiry_code TEXT, -- Token for non-smartphone / USSD / IVR inquiry
     details_json TEXT, -- JSON
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -78,6 +87,7 @@ CREATE INDEX IF NOT EXISTS idx_cases_application ON cases(application_id);
 CREATE INDEX IF NOT EXISTS idx_cases_status ON cases(status);
 CREATE INDEX IF NOT EXISTS idx_cases_office ON cases(intake_office);
 CREATE INDEX IF NOT EXISTS idx_cases_lawyer ON cases(assigned_lawyer_id);
+CREATE INDEX IF NOT EXISTS idx_cases_inquiry_code ON cases(citizen_inquiry_code);
 
 -- 4. Case-People Associative Registry
 CREATE TABLE IF NOT EXISTS case_people (
@@ -101,7 +111,30 @@ CREATE TABLE IF NOT EXISTS case_people (
 CREATE INDEX IF NOT EXISTS idx_case_people_case ON case_people(case_id);
 CREATE INDEX IF NOT EXISTS idx_case_people_person ON case_people(person_id);
 
--- 5. Provenance Log (Distinguishes spoken, translated, AI, human confirmed)
+-- 5. Safe Contacts Configuration (Strict Protection Mode)
+CREATE TABLE IF NOT EXISTS safe_contacts (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    person_id TEXT NOT NULL,
+    is_safe_contact_active INTEGER NOT NULL DEFAULT 1,
+    preferred_contact_method TEXT NOT NULL, -- e.g. 'IN_PERSON_REPRESENTATIVE', 'TRUSTED_ALTERNATIVE_PHONE', 'NO_PHONE_CALLS'
+    unsafe_channels TEXT NOT NULL, -- JSON array e.g. ["PRIMARY_PHONE", "SMS", "DIRECT_HOME_VISIT"]
+    safe_channel_details TEXT, -- Encrypted/restricted safe instructions e.g. "Contact brother Ripon only"
+    restriction_reason TEXT NOT NULL, -- e.g. "Husband controls phone and monitors incoming SMS/calls"
+    danger_level TEXT NOT NULL DEFAULT 'HIGH' CHECK(danger_level IN ('MODERATE', 'HIGH', 'EXTREME')),
+    confidentiality_notice TEXT,
+    configured_by_id TEXT NOT NULL,
+    configured_by_role TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+    FOREIGN KEY (person_id) REFERENCES people(id) ON DELETE RESTRICT
+);
+
+CREATE INDEX IF NOT EXISTS idx_safe_contacts_case ON safe_contacts(case_id);
+CREATE INDEX IF NOT EXISTS idx_safe_contacts_person ON safe_contacts(person_id);
+
+-- 6. Provenance Log (Distinguishes spoken, translated, typed, AI, human confirmed)
 CREATE TABLE IF NOT EXISTS provenance_log (
     id TEXT PRIMARY KEY,
     case_id TEXT,
@@ -117,6 +150,8 @@ CREATE TABLE IF NOT EXISTS provenance_log (
     target_language TEXT,
     author_id TEXT,
     author_role TEXT NOT NULL,
+    is_secondhand_report INTEGER NOT NULL DEFAULT 0,
+    reported_for_person_id TEXT,
     source_details TEXT, -- JSON or explanatory string
     raw_content TEXT,
     processed_content TEXT,
@@ -130,7 +165,7 @@ CREATE TABLE IF NOT EXISTS provenance_log (
 CREATE INDEX IF NOT EXISTS idx_prov_case ON provenance_log(case_id);
 CREATE INDEX IF NOT EXISTS idx_prov_entity ON provenance_log(entity_type, entity_id);
 
--- 6. Audit Log (Immutable record of state changes)
+-- 7. Audit Log (Strictly Immutable Record of State Changes)
 CREATE TABLE IF NOT EXISTS audit_log (
     id TEXT PRIMARY KEY,
     case_id TEXT,
@@ -151,7 +186,20 @@ CREATE INDEX IF NOT EXISTS idx_audit_case ON audit_log(case_id);
 CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at);
 
--- 7. Roles & Permissions Infrastructure
+-- IMMUTABILITY TRIGGERS: Prevent UPDATE or DELETE on audit_log
+CREATE TRIGGER IF NOT EXISTS prevent_audit_log_update
+BEFORE UPDATE ON audit_log
+BEGIN
+    SELECT RAISE(ABORT, 'IMMUTABLE_VIOLATION: Audit log entries cannot be modified.');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_audit_log_delete
+BEFORE DELETE ON audit_log
+BEGIN
+    SELECT RAISE(ABORT, 'IMMUTABLE_VIOLATION: Audit log entries cannot be deleted.');
+END;
+
+-- 8. Roles & Permissions Infrastructure
 CREATE TABLE IF NOT EXISTS roles (
     role_id TEXT PRIMARY KEY,
     role_code TEXT NOT NULL UNIQUE,
@@ -173,7 +221,7 @@ CREATE TABLE IF NOT EXISTS user_roles (
 
 CREATE INDEX IF NOT EXISTS idx_user_roles_user ON user_roles(user_id);
 
--- 8. Tasks (Accountability, SLA, Follow-ups)
+-- 9. Tasks (Accountability, SLA, Follow-ups)
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL,
@@ -196,21 +244,28 @@ CREATE INDEX IF NOT EXISTS idx_tasks_case ON tasks(case_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_assigned_role ON tasks(assigned_to_role);
 
--- 9. Referrals (Inter-district DLAO transfers, External Agencies)
+-- 10. Referrals (Inter-district, Police, OCC, Cyber Division)
 CREATE TABLE IF NOT EXISTS referrals (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL,
     referral_type TEXT NOT NULL CHECK(referral_type IN (
         'INTERNAL_TRANSFER', 'DLAO_TO_DLAO', 'POLICE_FORWARDING', 
-        'SOCIAL_SERVICES', 'NGO_LEGAL_CLINIC', 'MEDIATION_BOARD'
+        'SOCIAL_SERVICES', 'NGO_LEGAL_CLINIC', 'MEDIATION_BOARD',
+        'CYBER_CRIME_DIVISION', 'ONE_STOP_CRISIS_CENTRE'
     )),
+    target_authority_type TEXT NOT NULL DEFAULT 'DLAO',
     referring_office TEXT NOT NULL,
     receiving_office TEXT NOT NULL,
     referring_role TEXT NOT NULL,
     receiving_role TEXT,
     status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN (
-        'PENDING', 'TRANSMITTED', 'ACCEPTED', 'REJECTED', 'COMPLETED'
+        'PENDING', 'SENT', 'TRANSMITTED', 'ACKNOWLEDGED', 'IN_PROGRESS', 'ACCEPTED', 'REJECTED', 'COMPLETED'
     )),
+    acknowledgement_status TEXT NOT NULL DEFAULT 'UNACKNOWLEDGED' CHECK(acknowledgement_status IN (
+        'UNACKNOWLEDGED', 'ACKNOWLEDGED', 'ACTION_COMMENCED', 'CLOSED'
+    )),
+    assigned_officer_id TEXT,
+    acknowledged_at TEXT,
     reason TEXT NOT NULL,
     reason_bn TEXT,
     notes TEXT,
@@ -224,7 +279,7 @@ CREATE TABLE IF NOT EXISTS referrals (
 CREATE INDEX IF NOT EXISTS idx_referrals_case ON referrals(case_id);
 CREATE INDEX IF NOT EXISTS idx_referrals_status ON referrals(status);
 
--- 10. Incident Links (Multiple reports, Thana GD/FIR links)
+-- 11. Incident Links (Evidence Sensitivity & Police Jurisdiction)
 CREATE TABLE IF NOT EXISTS incident_links (
     id TEXT PRIMARY KEY,
     case_id TEXT NOT NULL,
@@ -234,6 +289,11 @@ CREATE TABLE IF NOT EXISTS incident_links (
     description TEXT NOT NULL,
     description_bn TEXT,
     severity TEXT NOT NULL DEFAULT 'MEDIUM' CHECK(severity IN ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL')),
+    is_sensitive_evidence INTEGER NOT NULL DEFAULT 0,
+    evidence_privacy_level TEXT NOT NULL DEFAULT 'STANDARD' CHECK(evidence_privacy_level IN (
+        'STANDARD', 'CONFIDENTIAL', 'STRICTLY_RESTRICTED_IMAGE_ABUSE'
+    )),
+    redacted_summary TEXT,
     police_station_jurisdiction TEXT,
     gd_or_fir_number TEXT,
     linked_by_user_id TEXT,
@@ -242,3 +302,37 @@ CREATE TABLE IF NOT EXISTS incident_links (
 );
 
 CREATE INDEX IF NOT EXISTS idx_incidents_case ON incident_links(case_id);
+
+-- 12. Sensitive Evidence Vault (Flow 3 - Information Governance & Chain-of-Custody)
+CREATE TABLE IF NOT EXISTS evidence_vault (
+    id TEXT PRIMARY KEY,
+    case_id TEXT NOT NULL,
+    incident_id TEXT,
+    evidence_type TEXT NOT NULL, -- e.g. 'ALTERED_IMAGE', 'BLACKMAIL_MESSAGE_LOG', 'URL_SCREENSHOT', 'AUDIO_RECORDING', 'OTHER'
+    title TEXT NOT NULL,
+    title_bn TEXT,
+    original_filename TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size_bytes INTEGER,
+    hash_checksum TEXT NOT NULL, -- SHA-256
+    storage_ref TEXT NOT NULL, -- Prototype vault reference URI
+    sensitivity_level TEXT NOT NULL CHECK(sensitivity_level IN (
+        'STANDARD', 'CONFIDENTIAL', 'STRICTLY_RESTRICTED_IMAGE_ABUSE'
+    )) DEFAULT 'CONFIDENTIAL',
+    access_restrictions TEXT, -- JSON array of restrictions
+    evidence_status TEXT NOT NULL CHECK(evidence_status IN (
+        'REGISTERED', 'VERIFIED', 'SUBMITTED_TO_COURT', 'FORWARDED_TO_POLICE', 'SEALED'
+    )) DEFAULT 'REGISTERED',
+    submitted_by_id TEXT NOT NULL,
+    submitted_by_role TEXT NOT NULL,
+    submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    chain_of_custody_notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+    FOREIGN KEY (case_id) REFERENCES cases(id) ON DELETE CASCADE,
+    FOREIGN KEY (incident_id) REFERENCES incident_links(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_evidence_case ON evidence_vault(case_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_sensitivity ON evidence_vault(sensitivity_level);
+

@@ -6,8 +6,11 @@ const provenanceService = require('./provenanceService');
 const taskService = require('./taskService');
 const referralService = require('./referralService');
 const incidentService = require('./incidentService');
+const safeContactService = require('./safeContactService');
+const evidenceService = require('./evidenceService');
 const idGenerator = require('../utils/idGenerator');
-const { CASE_STATES, AUDIT_ACTIONS } = require('../utils/constants');
+const { CASE_STATES, AUDIT_ACTIONS, ROLES } = require('../utils/constants');
+const lawyerAccountabilityService = require('./lawyerAccountabilityService');
 
 class CaseService {
   createCase(payload, actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }) {
@@ -42,6 +45,11 @@ class CaseService {
       court_name: payload.court_name || null,
       assigned_officer_id: payload.assigned_officer_id || null,
       assigned_lawyer_id: payload.assigned_lawyer_id || null,
+      filing_date: payload.filing_date || new Date().toISOString(),
+      lawyer_last_active_at: payload.lawyer_last_active_at || null,
+      lawyer_status: payload.lawyer_status || 'ACTIVE',
+      deadline_alert_level: payload.deadline_alert_level || 'NORMAL',
+      citizen_inquiry_code: payload.citizen_inquiry_code || null,
       details_json: payload.details || payload.details_json || {}
     });
 
@@ -70,10 +78,24 @@ class CaseService {
       });
     }
 
-    // 4. Update application status
+    // 4. If safe contact configuration is provided (Flow 1: Moyuri safe contact mode)
+    if (payload.safe_contact) {
+      safeContactService.configureSafeContact({
+        case_id: caseId,
+        person_id: application.applicant_id,
+        preferred_contact_method: payload.safe_contact.preferred_contact_method || 'IN_PERSON_REPRESENTATIVE',
+        unsafe_channels: payload.safe_contact.unsafe_channels || ['PRIMARY_PHONE', 'DIRECT_SMS'],
+        safe_channel_details: payload.safe_contact.safe_channel_details || null,
+        restriction_reason: payload.safe_contact.restriction_reason || 'Unsafe perpetrator contact situation',
+        danger_level: payload.safe_contact.danger_level || 'HIGH',
+        actor
+      });
+    }
+
+    // 5. Update application status
     applicationRepository.updateStatus(application.id, 'CONVERTED_TO_CASE');
 
-    // 5. Record audit event
+    // 6. Record audit event
     auditService.recordAuditEvent({
       case_id: caseId,
       application_id: application.id,
@@ -87,17 +109,44 @@ class CaseService {
     return caseData;
   }
 
-  getCase(id, options = { includeAll: true }) {
+  getCase(id, options = { includeAll: true }, actor = { id: 'SYSTEM', role: 'B1_DLAO_OFFICER' }) {
     const caseData = caseRepository.findById(id);
     if (!caseData) return null;
+
+    // RBAC check: B5 Panel Lawyer can only access assigned cases
+    if (actor.role === ROLES.B5_PANEL_LAWYER) {
+      const people = caseRepository.listPeopleForCase(id);
+      const isAssigned = (caseData.assigned_lawyer_id === actor.id) ||
+        people.some(p => p.person_id === actor.id && p.role_in_case === 'PANEL_LAWYER');
+
+      if (!isAssigned) {
+        try {
+          auditService.recordAuditEvent({
+            case_id: id,
+            application_id: caseData.application_id,
+            action: AUDIT_ACTIONS.ACCESS_DENIED,
+            actor_id: actor.id,
+            actor_role: actor.role,
+            notes: `Panel Lawyer '${actor.id}' attempted unauthorized access to unassigned case '${id}'`
+          });
+        } catch (e) {}
+
+        const err = new Error(`Access denied: Panel Lawyer is only authorized to access assigned cases`);
+        err.status = 403;
+        throw err;
+      }
+    }
 
     if (options.includeAll) {
       caseData.people = caseRepository.listPeopleForCase(id);
       caseData.tasks = taskService.getTasksForCase(id);
       caseData.referrals = referralService.getReferralsForCase(id);
       caseData.incidents = incidentService.getIncidentsForCase(id);
+      caseData.evidence = evidenceService.getEvidenceForCase(id, actor);
       caseData.provenance = provenanceService.getProvenanceForCase(id);
       caseData.audit_trail = auditService.getAuditTrailForCase(id);
+      caseData.safe_contacts = safeContactService.getSafeContactsForCase(id, actor);
+      caseData.lawyer_accountability = lawyerAccountabilityService.calculateAccountability(caseData, caseData.tasks);
     }
 
     return caseData;
@@ -207,7 +256,7 @@ class CaseService {
       notes: `Assigned Panel Lawyer ${lawyer.full_name} (${lawyerId}) to case`
     });
 
-    return this.getCase(caseId);
+    return this.getCase(caseId, { includeAll: true }, actor);
   }
 }
 

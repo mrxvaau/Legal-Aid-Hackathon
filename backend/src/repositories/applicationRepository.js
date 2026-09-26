@@ -12,12 +12,49 @@ class ApplicationRepository {
         p.district AS applicant_district,
         rep.full_name AS representative_name,
         rep.full_name_bn AS representative_name_bn,
-        rep.phone AS representative_phone
+        rep.phone AS representative_phone,
+        c.id AS linked_case_id,
+        c.case_number AS linked_case_number,
+        c.status AS linked_case_status
       FROM applications a
       JOIN people p ON a.applicant_id = p.id
       LEFT JOIN people rep ON a.representative_id = rep.id
+      LEFT JOIN cases c ON c.application_id = a.id
       WHERE a.id = ?
     `).get(id);
+
+    if (row && row.details_json) {
+      try {
+        row.details = JSON.parse(row.details_json);
+      } catch (e) {
+        row.details = {};
+      }
+    }
+    return row;
+  }
+
+  findByClientRequestId(clientRequestId) {
+    if (!clientRequestId) return null;
+    const db = getDb();
+    const row = db.prepare(`
+      SELECT 
+        a.*,
+        p.full_name AS applicant_name,
+        p.full_name_bn AS applicant_name_bn,
+        p.phone AS applicant_phone,
+        p.district AS applicant_district,
+        rep.full_name AS representative_name,
+        rep.full_name_bn AS representative_name_bn,
+        rep.phone AS representative_phone,
+        c.id AS linked_case_id,
+        c.case_number AS linked_case_number,
+        c.status AS linked_case_status
+      FROM applications a
+      JOIN people p ON a.applicant_id = p.id
+      LEFT JOIN people rep ON a.representative_id = rep.id
+      LEFT JOIN cases c ON c.application_id = a.id
+      WHERE a.client_request_id = ?
+    `).get(clientRequestId);
 
     if (row && row.details_json) {
       try {
@@ -37,14 +74,15 @@ class ApplicationRepository {
 
     const stmt = db.prepare(`
       INSERT INTO applications (
-        id, applicant_id, representative_id, category, intake_channel,
+        id, client_request_id, applicant_id, representative_id, category, intake_channel,
         intake_office, status, summary, summary_bn, details_json,
-        created_by_role, created_by_user_id
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        version, sync_status, created_by_role, created_by_user_id
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     stmt.run(
       app.id,
+      app.client_request_id || null,
       app.applicant_id,
       app.representative_id || null,
       app.category,
@@ -54,6 +92,8 @@ class ApplicationRepository {
       app.summary,
       app.summary_bn || null,
       detailsJson,
+      app.version || 1,
+      app.sync_status || 'SYNCED',
       app.created_by_role,
       app.created_by_user_id || null
     );
@@ -61,11 +101,40 @@ class ApplicationRepository {
     return this.findById(app.id);
   }
 
+  update(id, fields = {}) {
+    const db = getDb();
+    const allowed = ['summary', 'summary_bn', 'category', 'status', 'intake_office', 'sync_status'];
+    const sets = [];
+    const params = [];
+
+    for (const [key, val] of Object.entries(fields)) {
+      if (allowed.includes(key)) {
+        sets.push(`${key} = ?`);
+        params.push(val);
+      }
+    }
+
+    if (fields.details_json || fields.details) {
+      sets.push('details_json = ?');
+      params.push(JSON.stringify(fields.details_json || fields.details));
+    }
+
+    // Always increment version on update
+    sets.push('version = version + 1');
+    sets.push("updated_at = datetime('now')");
+
+    params.push(id);
+    const sql = `UPDATE applications SET ${sets.join(', ')} WHERE id = ?`;
+    db.prepare(sql).run(...params);
+
+    return this.findById(id);
+  }
+
   updateStatus(id, newStatus) {
     const db = getDb();
     db.prepare(`
       UPDATE applications
-      SET status = ?, updated_at = datetime('now')
+      SET status = ?, version = version + 1, updated_at = datetime('now')
       WHERE id = ?
     `).run(newStatus, id);
 
@@ -80,10 +149,14 @@ class ApplicationRepository {
         p.full_name AS applicant_name,
         p.full_name_bn AS applicant_name_bn,
         p.phone AS applicant_phone,
-        rep.full_name AS representative_name
+        rep.full_name AS representative_name,
+        c.id AS linked_case_id,
+        c.case_number AS linked_case_number,
+        c.status AS linked_case_status
       FROM applications a
       JOIN people p ON a.applicant_id = p.id
       LEFT JOIN people rep ON a.representative_id = rep.id
+      LEFT JOIN cases c ON c.application_id = a.id
       WHERE 1=1
     `;
     const params = [];
