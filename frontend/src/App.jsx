@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { LanguageProvider, useLanguage } from './i18n';
 import { RoleProvider, useRole } from './hooks/useRole';
 import Navbar from './components/Navbar';
+import StatStrip from './components/StatStrip';
+import GovFooter from './components/GovFooter';
 import CaseListPage from './pages/CaseListPage';
 import CaseDetailPage from './pages/CaseDetailPage';
 import NewApplicationPage from './pages/NewApplicationPage';
@@ -48,11 +50,14 @@ function MainApp() {
 
   return (
     <div className="app-layout">
-      {/* Top Navigation */}
+      {/* Top 3-Tier Navigation */}
       <Navbar currentView={currentView} setCurrentView={setCurrentView} />
 
+      {/* National Scale Stat Strip */}
+      <StatStrip />
+
       {/* Main Content Area */}
-      <main className="main-content">
+      <main id="main-content" className="main-content">
         {/* DLAO Administrative Case Registry */}
         {currentView === 'cases' && (
           <CaseListPage
@@ -122,25 +127,8 @@ function MainApp() {
         )}
       </main>
 
-      {/* Footer System Status Ribbon */}
-      <footer className="app-footer">
-        <div className="footer-container">
-          <div className="status-indicator">
-            <span className={`status-dot ${backendHealth === 'UP' ? 'online' : 'offline'}`} />
-            <span>
-              Express REST API: <strong>{backendHealth === 'UP' ? 'CONNECTED (Port 5000)' : 'CHECKING / OFFLINE'}</strong>
-            </span>
-          </div>
-
-          <div className="footer-meta">
-            <span>Role: <strong>{activeRole.code} - {language === 'bn' ? activeRole.nameBn : activeRole.nameEn}</strong></span>
-            <span>•</span>
-            <span>Locale: <strong>{language === 'bn' ? 'বাংলা (BN)' : 'English (EN)'}</strong></span>
-            <span>•</span>
-            <span>Database: <strong>SQLite (via Backend Services)</strong></span>
-          </div>
-        </div>
-      </footer>
+      {/* Restrained Official Footer */}
+      <GovFooter backendHealth={backendHealth} />
     </div>
   );
 }

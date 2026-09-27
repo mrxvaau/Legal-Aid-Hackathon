@@ -36,6 +36,20 @@ app.use('/api/sync', syncRoutes);
 app.use('/api', syncRoutes); // mounts /api/ai-pre-assess
 app.use('/api', metaRoutes);
 
+// Static Frontend Serving (Single VPS Deployment)
+const fs = require('fs');
+const path = require('path');
+const frontendDist = path.resolve(__dirname, '../../frontend/dist');
+if (fs.existsSync(frontendDist)) {
+  app.use(express.static(frontendDist));
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(path.join(frontendDist, 'index.html'));
+  });
+}
+
 // Fallbacks & Error Handlers
 app.use(notFoundHandler);
 app.use(errorHandler);

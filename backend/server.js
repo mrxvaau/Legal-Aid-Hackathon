@@ -11,8 +11,10 @@ try {
   process.exit(1);
 }
 
-const server = app.listen(config.port, () => {
-  console.log(`[Server] ADLASB Backend running on http://localhost:${config.port} in ${config.env} mode.`);
+const HOST = process.env.HOST || '0.0.0.0';
+
+const server = app.listen(config.port, HOST, () => {
+  console.log(`[Server] ADLASB Backend running on http://${HOST}:${config.port} in ${config.env} mode.`);
 });
 
 module.exports = server;
