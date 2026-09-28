@@ -9,6 +9,8 @@ const metaRoutes = require('./routes/metaRoutes');
 const syncRoutes = require('./routes/syncRoutes');
 const incidentRoutes = require('./routes/incidentRoutes');
 const reportRoutes = require('./routes/reportRoutes');
+const peopleRoutes = require('./routes/peopleRoutes');
+const emergencyRoutes = require('./routes/emergencyRoutes');
 const caseController = require('./controllers/caseController');
 
 const app = express();
@@ -34,6 +36,8 @@ app.get('/api/citizen/status', caseController.getCitizenStatus.bind(caseControll
 app.post('/api/citizen/status', caseController.getCitizenStatus.bind(caseController));
 app.use('/api/sync', syncRoutes);
 app.use('/api', syncRoutes); // mounts /api/ai-pre-assess
+app.use('/api/people', peopleRoutes);
+app.use('/api/emergency', emergencyRoutes);
 app.use('/api', metaRoutes);
 
 // Static Frontend Serving (Single VPS Deployment)

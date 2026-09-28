@@ -7,11 +7,15 @@ const API_BASE = '/api';
 
 function getAuthHeaders() {
   const activeRole = localStorage.getItem('adlasb_active_role') || 'B1_DLAO_OFFICER';
+  const activeUserId = localStorage.getItem('adlasb_active_user_id') || `USR-${activeRole}`;
+  const activeUserName = localStorage.getItem('adlasb_active_user_name') || `${activeRole} User`;
+  const activeUserOffice = localStorage.getItem('adlasb_active_user_office') || 'DLAO Dhaka';
   return {
     'Content-Type': 'application/json',
     'x-user-role': activeRole,
-    'x-user-id': `USR-${activeRole}`,
-    'x-user-name': `${activeRole} User`
+    'x-user-id': activeUserId,
+    'x-user-name': activeUserName,
+    'x-user-office': activeUserOffice
   };
 }
 
@@ -151,6 +155,25 @@ export const api = {
   escalateLawyer: (caseId, payload) => request(`/cases/${caseId}/lawyer/escalate`, {
     method: 'POST',
     body: JSON.stringify(payload)
+  }),
+  // People & Demo Authentication
+  getPeople: () => request('/people'),
+  registerPerson: (payload) => request('/people/register', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  lookupPerson: (payload) => request('/people/lookup', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  // Emergency / Danger Alert System
+  sendEmergencyAlert: (payload) => request('/emergency/alert', {
+    method: 'POST',
+    body: JSON.stringify(payload)
+  }),
+  getEmergencyAlerts: () => request('/emergency/alerts'),
+  acknowledgeEmergencyAlert: (id) => request(`/emergency/alerts/${id}/acknowledge`, {
+    method: 'POST'
   })
 };
 

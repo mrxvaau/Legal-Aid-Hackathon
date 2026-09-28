@@ -15,6 +15,15 @@ export const AVAILABLE_ROLES = [
 ];
 
 export function RoleProvider({ children }) {
+  const [currentUser, setCurrentUser] = useState(() => {
+    try {
+      const stored = localStorage.getItem('adlasb_current_user');
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+
   const [currentRoleId, setCurrentRoleId] = useState(() => {
     return localStorage.getItem('adlasb_active_role') || 'B1_DLAO_OFFICER';
   });
@@ -22,11 +31,57 @@ export function RoleProvider({ children }) {
   const activeRole = AVAILABLE_ROLES.find(r => r.id === currentRoleId) || AVAILABLE_ROLES[0];
 
   useEffect(() => {
-    localStorage.setItem('adlasb_active_role', currentRoleId);
+    if (currentRoleId) {
+      localStorage.setItem('adlasb_active_role', currentRoleId);
+    }
   }, [currentRoleId]);
 
+  const login = (person, roleId) => {
+    const resolvedRoleId = roleId || person.role_id || 'CITIZEN_APPLICANT';
+    const userObj = {
+      id: person.id,
+      name: person.full_name || person.name || 'User',
+      nameBn: person.full_name_bn || person.nameBn || '',
+      phone: person.phone || '',
+      nationalId: person.national_id || '',
+      district: person.district || 'Dhaka',
+      division: person.division || 'Dhaka',
+      roleId: resolvedRoleId,
+      office: person.office || `DLAO ${person.district || 'Dhaka'}`
+    };
+
+    setCurrentUser(userObj);
+    setCurrentRoleId(resolvedRoleId);
+
+    localStorage.setItem('adlasb_current_user', JSON.stringify(userObj));
+    localStorage.setItem('adlasb_active_role', resolvedRoleId);
+    localStorage.setItem('adlasb_active_user_id', userObj.id);
+    localStorage.setItem('adlasb_active_user_name', userObj.name);
+    localStorage.setItem('adlasb_active_user_office', userObj.office);
+  };
+
+  const logout = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('adlasb_current_user');
+    localStorage.removeItem('adlasb_active_role');
+    localStorage.removeItem('adlasb_active_user_id');
+    localStorage.removeItem('adlasb_active_user_name');
+    localStorage.removeItem('adlasb_active_user_office');
+  };
+
   return (
-    <RoleContext.Provider value={{ activeRole, currentRoleId, setRole: setCurrentRoleId, AVAILABLE_ROLES }}>
+    <RoleContext.Provider
+      value={{
+        currentUser,
+        isAuthenticated: !!currentUser,
+        login,
+        logout,
+        activeRole,
+        currentRoleId,
+        setRole: setCurrentRoleId,
+        AVAILABLE_ROLES
+      }}
+    >
       {children}
     </RoleContext.Provider>
   );

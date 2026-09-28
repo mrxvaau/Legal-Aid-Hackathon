@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useLanguage } from '../i18n';
 import StatusBadge from '../components/StatusBadge';
+import { IconAlertTriangle, IconShield } from '../components/Icons';
 import api from '../services/api';
 
 export default function CaseListPage({ onSelectCase, onNewApplication }) {
@@ -12,6 +13,32 @@ export default function CaseListPage({ onSelectCase, onNewApplication }) {
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [activeTab, setActiveTab] = useState('cases'); // 'cases' | 'applications' | 'matrix'
+  const [emergencyAlerts, setEmergencyAlerts] = useState([]);
+  const [acknowledgingId, setAcknowledgingId] = useState(null);
+
+  const loadEmergencyAlerts = async () => {
+    try {
+      const res = await api.getEmergencyAlerts();
+      setEmergencyAlerts(res.data || []);
+    } catch (e) {
+      console.warn('Could not load emergency alerts:', e);
+    }
+  };
+
+  const handleAcknowledgeAlert = async (alertId, caseId) => {
+    setAcknowledgingId(alertId);
+    try {
+      await api.acknowledgeEmergencyAlert(alertId);
+      await loadEmergencyAlerts();
+      if (caseId) {
+        onSelectCase(caseId);
+      }
+    } catch (e) {
+      alert('Error acknowledging alert: ' + e.message);
+    } finally {
+      setAcknowledgingId(null);
+    }
+  };
 
   const loadCases = async (searchOverride = null) => {
     setLoading(true);
@@ -22,13 +49,15 @@ export default function CaseListPage({ onSelectCase, onNewApplication }) {
       if (query) params.search = query;
       if (statusFilter) params.status = statusFilter;
       
-      const [caseRes, appRes] = await Promise.all([
+      const [caseRes, appRes, alertRes] = await Promise.all([
         api.getCases(params),
-        api.getApplications()
+        api.getApplications(),
+        api.getEmergencyAlerts().catch(() => ({ data: [] }))
       ]);
 
       setCases(caseRes.data || []);
       setApplications(appRes.data || []);
+      setEmergencyAlerts(alertRes.data || []);
     } catch (err) {
       setError(err.message || 'Failed to load records');
     } finally {
@@ -77,6 +106,121 @@ export default function CaseListPage({ onSelectCase, onNewApplication }) {
           </button>
         </div>
       </div>
+
+      {/* 0. DLAO OFFICER EMERGENCY DISPATCH QUEUE (Pulsing Urgent Top-of-Dashboard Treatment) */}
+      {emergencyAlerts && emergencyAlerts.length > 0 && (
+        <section
+          className="officer-emergency-queue-section"
+          id="officer-emergency-alerts-queue"
+          aria-label={language === 'bn' ? 'সক্রিয় জরুরি বিপদ সতর্কবার্তা কিউ' : 'Active Emergency Alert Operational Queue'}
+        >
+          <div className="emergency-queue-header">
+            <div className="emergency-badge-pulsing">
+              <span className="emergency-pulse-dot" aria-hidden="true"></span>
+              <IconAlertTriangle size={18} />
+              <span>{language === 'bn' ? 'জরুরি বিপদ সতর্কবার্তা কিউ' : 'CRITICAL EMERGENCY ALERT QUEUE'}</span>
+              <span className="emergency-count-tag">{emergencyAlerts.length}</span>
+            </div>
+            <span className="emergency-sla-tag">
+              ⏱️ {language === 'bn' ? '৫-মিনিট বাধ্যবাধকতামূলক এসএলএ স্বীকৃতি সময়' : '5-Min Mandatory SLA Acknowledgment Required'}
+            </span>
+          </div>
+
+          <div className="emergency-alerts-list">
+            {emergencyAlerts.map((alert) => (
+              <div
+                key={alert.id}
+                className={`officer-emergency-card ${alert.status === 'PENDING' ? 'pending-action' : 'acknowledged-state'}`}
+                id={`officer-emergency-item-${alert.id}`}
+              >
+                <div className="emergency-card-main">
+                  <div className="emergency-card-headline">
+                    <span className="emergency-item-id">{alert.id}</span>
+                    <strong className="emergency-citizen-name">
+                      {alert.citizen_name || alert.case_applicant_name || (language === 'bn' ? 'জরুরি সেবা প্রার্থী নাগরিক' : 'Citizen Applicant')}
+                    </strong>
+                    {alert.case_number && (
+                      <span className="emergency-case-ref">
+                        📁 {alert.case_number}
+                      </span>
+                    )}
+                    <span className={`emergency-status-pill ${alert.status.toLowerCase()}`}>
+                      {alert.status === 'PENDING' 
+                        ? (language === 'bn' ? '⚠️ অমীমাংসিত / জরুরি পর্যালোচনা আবশ্যক' : '⚠️ PENDING IMMEDIATE OFFICER ACTION')
+                        : (language === 'bn' ? '✓ কর্মকর্তা দ্বারা স্বীকৃত' : '✓ ACKNOWLEDGED')}
+                    </span>
+                  </div>
+
+                  <p className="emergency-reason-text">
+                    <strong>{language === 'bn' ? 'বিপদ বিবরণ / বিপদের কারণ:' : 'Urgency Reason:'}</strong> {alert.danger_notes || alert.urgency_reason}
+                  </p>
+
+                  {/* Safe Contact Mode Alert Banner */}
+                  {alert.safe_contact_active === 1 && (
+                    <div className="safe-contact-alert-badge" id={`safe-contact-badge-${alert.id}`}>
+                      <IconShield size={16} />
+                      <strong>
+                        {language === 'bn'
+                          ? '🛡️ নিরাপদ যোগাযোগ মোড সক্রিয় — নাগরিকের ফোন নম্বরে সরাসরি কল বা এসএমএস নিষিদ্ধ! কেবল অনুমোদিত প্রতিনিধির মাধ্যমে যোগাযোগ করুন।'
+                          : '🛡️ SAFE CONTACT MODE ACTIVE — Direct call/SMS to applicant prohibited! Contact ONLY via designated authorized representative.'}
+                      </strong>
+                    </div>
+                  )}
+
+                  <div className="emergency-card-meta">
+                    <span>
+                      🕒 {language === 'bn' ? 'সতর্কবার্তা সময়:' : 'Triggered:'} {new Date(alert.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                    </span>
+                    <span>
+                      📡 {language === 'bn' ? 'উৎস চ্যানেল:' : 'Source:'} {alert.source_channel || 'CITIZEN_PORTAL'}
+                    </span>
+                    <span>
+                      🚨 {language === 'bn' ? 'অগ্রাধিকার:' : 'Priority:'} RED / URGENT (Tier-1)
+                    </span>
+                    {alert.acknowledged_at && (
+                      <span className="emergency-ack-meta">
+                        👤 {language === 'bn' ? 'স্বীকৃতিদাতা:' : 'Acknowledged by:'} {alert.acknowledged_by} ({new Date(alert.acknowledged_at).toLocaleTimeString()})
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="emergency-card-actions">
+                  {alert.status === 'PENDING' ? (
+                    <button
+                      type="button"
+                      id={`btn-ack-alert-${alert.id}`}
+                      className="btn-acknowledge-emergency"
+                      onClick={() => handleAcknowledgeAlert(alert.id, alert.case_id)}
+                      disabled={acknowledgingId === alert.id}
+                    >
+                      {acknowledgingId === alert.id ? (
+                        <span>{language === 'bn' ? 'লগ এন্ট্রি লেখা হচ্ছে...' : 'Writing Audit Log...'}</span>
+                      ) : (
+                        <>
+                          <IconAlertTriangle size={18} />
+                          <span>{language === 'bn' ? 'স্বীকৃতি দিন ও পর্যালোচনা করুন' : 'Acknowledge & Review'}</span>
+                        </>
+                      )}
+                    </button>
+                  ) : (
+                    alert.case_id && (
+                      <button
+                        type="button"
+                        className="btn-secondary"
+                        onClick={() => onSelectCase(alert.case_id)}
+                        id={`btn-view-dossier-${alert.id}`}
+                      >
+                        📂 {language === 'bn' ? 'নথিপত্র দেখুন' : 'Open Case Dossier'}
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {/* Jury Scenario Quick Filter Ribbon */}
       <div className="scenario-ribbon">

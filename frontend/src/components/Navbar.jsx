@@ -2,19 +2,29 @@ import React, { useState } from 'react';
 import { useLanguage } from '../i18n';
 import { useRole } from '../hooks/useRole';
 import AccessibilityToolbar from './AccessibilityToolbar';
+import { IconLogout, IconLogin, IconRegister } from './Icons';
 
-export default function Navbar({ currentView, setCurrentView }) {
+export default function Navbar({ currentView, setCurrentView, onNavigateLogin, onNavigateRegister }) {
   const { language, toggleLanguage, t } = useLanguage();
-  const { activeRole, currentRoleId, setRole, AVAILABLE_ROLES } = useRole();
+  const { currentUser, isAuthenticated, logout, activeRole, currentRoleId } = useRole();
   const [a11yOpen, setA11yOpen] = useState(false);
 
-  const handleRoleChange = (e) => {
-    const newRoleId = e.target.value;
-    setRole(newRoleId);
-    if (newRoleId === 'AUTHORIZED_REPRESENTATIVE') {
+  const handleLogout = () => {
+    logout();
+    setCurrentView('landing');
+  };
+
+  const handleBrandClick = () => {
+    if (!currentUser) {
+      setCurrentView('landing');
+    } else if (currentRoleId === 'AUTHORIZED_REPRESENTATIVE') {
       setCurrentView('representative-portal');
-    } else if (newRoleId === 'B4_UDC_ENTREPRENEUR') {
+    } else if (currentRoleId === 'B4_UDC_ENTREPRENEUR') {
       setCurrentView('udc-portal');
+    } else if (currentRoleId === 'CITIZEN_APPLICANT') {
+      setCurrentView('citizen-portal');
+    } else {
+      setCurrentView('cases');
     }
   };
 
@@ -78,10 +88,10 @@ export default function Navbar({ currentView, setCurrentView }) {
         <div className="masthead-inner">
           <div
             className="masthead-brand"
-            onClick={() => setCurrentView('cases')}
+            onClick={handleBrandClick}
             tabIndex={0}
             role="button"
-            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') setCurrentView('cases'); }}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') handleBrandClick(); }}
             aria-label="Home - ADLASB National Legal Aid Platform"
           >
             {/* National Judicial Scales Emblem */}
@@ -129,81 +139,187 @@ export default function Navbar({ currentView, setCurrentView }) {
       </div>
 
       {/* =========================================================================
-          TIER 3: Institutional Menu Bar (Solid Green #0F5132 + Navigation + Roles)
+          TIER 3: Institutional Menu Bar (Solid Green #0F5132 + Navigation + User Session / Logout)
           ========================================================================= */}
       <nav className="gov-menubar" aria-label="Portal Navigation">
         <div className="menubar-inner">
           <div className="menubar-tabs">
-            {/* Citizen Portal */}
-            <button
-              type="button"
-              className={`gov-nav-tab ${currentView === 'citizen-portal' ? 'active' : ''}`}
-              onClick={() => setCurrentView('citizen-portal')}
-            >
-              {language === 'bn' ? 'নাগরিক পোর্টাল' : 'Citizen Portal'}
-            </button>
+            {/* If NOT authenticated (e.g. Landing / Login / Register) */}
+            {!currentUser && (
+              <>
+                <button
+                  type="button"
+                  className={`gov-nav-tab ${currentView === 'landing' ? 'active' : ''}`}
+                  onClick={() => setCurrentView('landing')}
+                >
+                  {language === 'bn' ? 'মূল পাতা (হোম)' : 'Home / Landing'}
+                </button>
+                <button
+                  type="button"
+                  className={`gov-nav-tab ${currentView === 'login' ? 'active' : ''}`}
+                  onClick={() => setCurrentView('login')}
+                >
+                  {language === 'bn' ? 'লগইন করুন' : 'Sign In'}
+                </button>
+                <button
+                  type="button"
+                  className={`gov-nav-tab ${currentView === 'register' ? 'active' : ''}`}
+                  onClick={() => setCurrentView('register')}
+                >
+                  {language === 'bn' ? 'নতুন নিবন্ধন' : 'Register'}
+                </button>
+              </>
+            )}
 
-            {/* DLAO Staff Registry */}
-            <button
-              type="button"
-              className={`gov-nav-tab ${currentView === 'cases' || currentView === 'case-detail' || currentView === 'new-app' ? 'active' : ''}`}
-              onClick={() => setCurrentView('cases')}
-            >
-              {language === 'bn' ? 'ডিএলএও কর্মকর্তা রেজিস্ট্রি' : 'DLAO Staff Registry'}
-            </button>
+            {/* If AUTHENTICATED: Show Role-Specific Tabs */}
+            {currentUser && (
+              <>
+                {/* 1. Citizen Applicant Portal */}
+                {currentRoleId === 'CITIZEN_APPLICANT' && (
+                  <>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'citizen-portal' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('citizen-portal')}
+                    >
+                      {language === 'bn' ? 'নাগরিক পোর্টাল' : 'Citizen Portal'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'citizen-intake' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('citizen-intake')}
+                    >
+                      {language === 'bn' ? '+ নতুন আবেদন গ্রহণ' : '+ New Citizen Intake'}
+                    </button>
+                  </>
+                )}
 
-            {/* Representative Portal (Ripon) */}
-            <button
-              type="button"
-              className={`gov-nav-tab ${currentView === 'representative-portal' ? 'active' : ''}`}
-              onClick={() => {
-                setRole('AUTHORIZED_REPRESENTATIVE');
-                setCurrentView('representative-portal');
-              }}
-            >
-              {language === 'bn' ? 'প্রতিনিধি পোর্টাল (রিপন)' : 'Representative Portal (Ripon)'}
-            </button>
+                {/* 2. Authorized Representative Portal */}
+                {currentRoleId === 'AUTHORIZED_REPRESENTATIVE' && (
+                  <>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'representative-portal' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('representative-portal')}
+                    >
+                      {language === 'bn' ? 'প্রতিনিধি পোর্টাল' : 'Representative Portal'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'citizen-portal' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('citizen-portal')}
+                    >
+                      {language === 'bn' ? 'কেস ট্র্যাকিং' : 'Case Tracking'}
+                    </button>
+                  </>
+                )}
 
-            {/* UDC Assisted Portal (Nuching Marma) */}
-            <button
-              type="button"
-              className={`gov-nav-tab ${currentView === 'udc-portal' ? 'active' : ''}`}
-              onClick={() => {
-                setRole('B4_UDC_ENTREPRENEUR');
-                setCurrentView('udc-portal');
-              }}
-            >
-              {language === 'bn' ? 'ইউডিসি সহায়তা (নূচিং মারমা)' : 'UDC Assisted Portal (Nuching)'}
-            </button>
+                {/* 3. UDC Assisted Portal */}
+                {currentRoleId === 'B4_UDC_ENTREPRENEUR' && (
+                  <>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'udc-portal' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('udc-portal')}
+                    >
+                      {language === 'bn' ? 'ইউডিসি সহায়তা পোর্টাল' : 'UDC Assisted Portal'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'cases' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('cases')}
+                    >
+                      {language === 'bn' ? 'ডিএলএও রেজিস্ট্রি' : 'DLAO Registry'}
+                    </button>
+                  </>
+                )}
 
-            {/* Citizen Intake */}
-            <button
-              type="button"
-              className={`gov-nav-tab ${currentView === 'citizen-intake' ? 'active' : ''}`}
-              onClick={() => setCurrentView('citizen-intake')}
-            >
-              {language === 'bn' ? '+ নতুন আবেদন গ্রহণ' : '+ New Citizen Intake'}
-            </button>
+                {/* 4. Panel Lawyer Portal */}
+                {currentRoleId === 'B5_PANEL_LAWYER' && (
+                  <>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'cases' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('cases')}
+                    >
+                      {language === 'bn' ? 'নিযুক্ত মামলা রেজিস্ট্রি' : 'Assigned Case Dossier'}
+                    </button>
+                  </>
+                )}
+
+                {/* 5. DLAO Officers, Mediators, Helpline, and Admins */}
+                {['B1_DLAO_OFFICER', 'B2_LEGAL_AID_OFFICER', 'B3_HELPLINE_AGENT', 'B6_RECEIVING_DLAO', 'B7_DLAO_ADMIN'].includes(currentRoleId) && (
+                  <>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'cases' || currentView === 'case-detail' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('cases')}
+                    >
+                      {language === 'bn' ? 'ডিএলএও কর্মকর্তা রেজিস্ট্রি' : 'DLAO Staff Registry'}
+                    </button>
+                    <button
+                      type="button"
+                      className={`gov-nav-tab ${currentView === 'new-app' ? 'active' : ''}`}
+                      onClick={() => setCurrentView('new-app')}
+                    >
+                      {language === 'bn' ? '+ প্রশাসনিক আবেদন' : '+ New Application'}
+                    </button>
+                  </>
+                )}
+              </>
+            )}
           </div>
 
-          {/* Role Switcher */}
-          <div className="gov-role-selector">
-            <label htmlFor="nav-role-select" className="role-selector-label">
-              {language === 'bn' ? 'সেশন পদবী:' : 'Active Role:'}
-            </label>
-            <select
-              id="nav-role-select"
-              value={currentRoleId}
-              onChange={handleRoleChange}
-              className="gov-role-dropdown"
-              aria-label={t('app.activeRole')}
-            >
-              {AVAILABLE_ROLES.map((r) => (
-                <option key={r.id} value={r.id}>
-                  [{r.code}] {language === 'bn' ? r.nameBn : r.nameEn}
-                </option>
-              ))}
-            </select>
+          {/* =========================================================================
+              PART 4: REPLACED ROLE SWITCHER DROPDOWN
+              Shows logged-in identity badge + persistent "Logout" button
+              or "Sign In / Register" shortcuts when unauthenticated
+              ========================================================================= */}
+          <div className="gov-auth-session-area">
+            {currentUser ? (
+              <div className="session-user-container">
+                <div className="session-user-badge">
+                  <span className="session-role-code">[{activeRole.code}]</span>
+                  <span className="session-user-name">
+                    {language === 'bn' ? (currentUser.nameBn || currentUser.name) : currentUser.name}
+                  </span>
+                  <span className="session-office-label">
+                    {currentUser.office || 'DLAO Dhaka'}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  id="nav-logout-btn"
+                  className="btn-nav-logout"
+                  onClick={handleLogout}
+                  title={language === 'bn' ? 'লগআউট করে মূল পাতায় ফিরুন' : 'Logout and return to Landing Page'}
+                >
+                  <IconLogout size={16} />
+                  <span>{language === 'bn' ? 'লগআউট' : 'Logout'}</span>
+                </button>
+              </div>
+            ) : (
+              <div className="unauth-actions">
+                <button
+                  type="button"
+                  id="nav-login-btn"
+                  className="btn-menubar-login"
+                  onClick={() => onNavigateLogin?.('citizen')}
+                >
+                  <IconLogin size={15} />
+                  <span>{language === 'bn' ? 'প্রবেশ করুন' : 'Sign In'}</span>
+                </button>
+                <button
+                  type="button"
+                  id="nav-register-btn"
+                  className="btn-menubar-register"
+                  onClick={() => onNavigateRegister?.('citizen')}
+                >
+                  <IconRegister size={15} />
+                  <span>{language === 'bn' ? 'নিবন্ধন' : 'Register'}</span>
+                </button>
+              </div>
+            )}
           </div>
         </div>
       </nav>
